@@ -30,11 +30,14 @@ import com.felipebz.zpa.api.annotations.*
 class InequalityUsageCheck : AbstractBaseCheck() {
 
     override fun init() {
-        subscribeTo(PlSqlGrammar.NOTEQUALS_NONSTANDARD_OPERATOR)
+        subscribeTo(PlSqlGrammar.NOTEQUALS_OPERATOR)
     }
 
     override fun visitNode(node: AstNode) {
-        addLineIssue(getLocalizedMessage(), node.tokenLine, node.tokens.joinToString("") { it.value })
+        val operator = node.tokens.joinToString("") { it.value }
+        if (operator != "!=") {
+            addLineIssue(getLocalizedMessage(), node.tokenLine, operator)
+        }
     }
 
 }
