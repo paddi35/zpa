@@ -1,15 +1,15 @@
 <p>
-As formas "<>", "!=", "~=" and "^=" são equivalentes, mas apenas a forma "<>" está definida no padrão ANSI SQL.
+As formas "<>", "!=", "~=" e "^=" são equivalentes. Use "!=" de forma consistente para testar diferença.
 </p>
 
 <h2>Código em desconformidade</h2>
 
 <pre data-diff-id="1" data-diff-type="noncompliant">
-if a != b then
+if a <> b then
 </pre>
 
 <h2>Código correto</h2>
 
 <pre data-diff-id="1" data-diff-type="compliant">
-if a <> b then
+if a != b then
 </pre>

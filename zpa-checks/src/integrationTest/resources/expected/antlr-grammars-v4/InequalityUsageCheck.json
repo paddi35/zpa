@@ -1,15 +1,6 @@
 {
-  "examples/bindvar03.sql" : [
-    15
-  ],
-  "examples/connect_by03.sql" : [
-    4
-  ],
-  "examples/groupby01.sql" : [
-    7
-  ],
-  "examples/groupby02.sql" : [
-    7
+  "examples/condition12.sql" : [
+    3
   ],
   "examples/lexer01.sql" : [
     1,
@@ -18,5 +9,9 @@
   "hw-examples/lexer01.sql" : [
     1,
     1
+  ],
+  "long-running/datetime02.sql" : [
+    10,
+    10
   ]
 }
