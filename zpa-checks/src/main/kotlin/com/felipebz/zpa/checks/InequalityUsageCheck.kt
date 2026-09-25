@@ -23,7 +23,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
 
-@Rule(priority = Priority.MAJOR, tags = [Tags.OBSOLETE])
+@Rule(priority = Priority.MAJOR, tags = [Tags.CONVENTION])
 @ConstantRemediation("5min")
 @RuleInfo(scope = RuleInfo.Scope.ALL)
 @ActivatedByDefault
