@@ -1,13 +1,12 @@
 create procedure foo(bar in varchar2 default null) is -- parameter declaration, no issue
-  var1 varchar2(1) default null; -- Noncompliant {{Remove this unnecessary initialization to NULL.}}
-  var2 varchar2(1) default ''; -- Noncompliant
-  var3 varchar2(1) := null; -- Noncompliant
-  var4 varchar2(1) := ''; -- Noncompliant
-  var5 varchar2(1) null := null; -- Noncompliant
-  var6 varchar2(1)
-    := null; -- Noncompliant
+  var1 varchar2(1); -- Noncompliant {{Remove this unnecessary initialization to NULL.}}
+  var2 varchar2(1); -- Noncompliant
+  var3 varchar2(1); -- Noncompliant
+  var4 varchar2(1); -- Noncompliant
+  var5 varchar2(1) null; -- Noncompliant
+  var6 varchar2(1); -- Noncompliant
 
-  type rec is record (field varchar2(1) default null, field2 number := null); -- Noncompliant
+  type rec is record (field varchar2(1), field2 number); -- Noncompliant
   -- Noncompliant@-1
 
   -- noncompliant code without a quick fix

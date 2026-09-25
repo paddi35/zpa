@@ -23,6 +23,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.INFO)
 @ConstantRemediation("1min")
@@ -36,7 +37,16 @@ class DeclareSectionWithoutDeclarationsCheck : AbstractBaseCheck() {
 
     override fun visitNode(node: AstNode) {
         if (node.hasDirectChildren(PlSqlKeyword.DECLARE) && !node.hasDescendant(PlSqlGrammar.DECLARE_SECTION)) {
-            addIssue(node, getLocalizedMessage())
+            val issue = addIssue(node, getLocalizedMessage())
+            val declare = node.getFirstChild(PlSqlKeyword.DECLARE)
+            val next = declare.nextSiblingOrNull?.tokenOrNull
+            // remove the keyword and the whitespace after it, unless a comment follows it
+            val edit = if (next != null && next.trivia.none { it.isComment }) {
+                TextEdit(declare.token.line, declare.token.column, next.line, next.column, "")
+            } else {
+                TextEdit.remove(declare)
+            }
+            issue.addQuickFix(getQuickFixMessage(), edit)
         }
     }
 

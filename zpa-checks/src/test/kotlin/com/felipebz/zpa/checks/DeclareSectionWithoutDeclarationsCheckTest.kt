@@ -19,14 +19,25 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class DeclareSectionWithoutDeclarationsCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("declare_section_without_declarations.sql"), DeclareSectionWithoutDeclarationsCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = DeclareSectionWithoutDeclarationsCheck()
+        PlSqlCheckVerifier.verify(getPath("declare_section_without_declarations.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly(*Array(5) { "Remove the DECLARE keyword" })
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("declare_section_without_declarations.sql"), DeclareSectionWithoutDeclarationsCheck(), getPath("declare_section_without_declarations.fixed.sql"))
     }
 
 }

@@ -22,6 +22,7 @@ package com.felipebz.zpa.checks
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MAJOR, tags = [Tags.CONVENTION])
 @ConstantRemediation("5min")
@@ -37,6 +38,7 @@ class InequalityUsageCheck : AbstractBaseCheck() {
         val operator = node.tokens.joinToString("") { it.value }
         if (operator != "!=") {
             addLineIssue(getLocalizedMessage(), node.tokenLine, operator)
+                .addQuickFix(getQuickFixMessage(operator), TextEdit.replace(node, "!="))
         }
     }
 

@@ -123,4 +123,21 @@ object CheckUtils {
     fun isProgramUnit(node: AstNode?): Boolean {
         return node != null && node.typeIs(PROGRAM_UNITS)
     }
+
+    /**
+     * Returns [keywords] (written in upper case) in lower case if the closest reserved keyword written in
+     * [node] or in its ancestors is in lower case, so that a quick fix matches the style of the code.
+     */
+    fun matchKeywordCase(keywords: String, node: AstNode): String {
+        var current: AstNode? = node
+        while (current != null) {
+            val keyword = current.tokens.firstOrNull { (it.type as? PlSqlKeyword)?.isReserved == true }
+            if (keyword != null) {
+                val original = keyword.originalValue
+                return if (original == original.lowercase()) keywords.lowercase() else keywords
+            }
+            current = current.parentOrNull
+        }
+        return keywords
+    }
 }

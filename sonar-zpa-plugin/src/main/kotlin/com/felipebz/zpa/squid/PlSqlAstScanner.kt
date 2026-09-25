@@ -178,6 +178,11 @@ class PlSqlAstScanner(private val context: SensorContext,
                 newIssue.addLocation(newLocation(inputFile, newIssue, secondaryLocation))
             }
 
+            // the edits are only used by IDE integrations, SonarQube just marks the issue as fixable
+            if (issue.quickFixes.isNotEmpty()) {
+                newIssue.setQuickFixAvailable(true)
+            }
+
             newIssue.save()
         }
     }

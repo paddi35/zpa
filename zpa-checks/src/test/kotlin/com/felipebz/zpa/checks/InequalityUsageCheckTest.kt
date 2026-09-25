@@ -19,14 +19,26 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class InequalityUsageCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("inequality_usage_check.sql"), InequalityUsageCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = InequalityUsageCheck()
+        PlSqlCheckVerifier.verify(getPath("inequality_usage_check.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly("Replace \"<>\" with \"!=\"", "Replace \"^=\" with \"!=\"", "Replace \"~=\" with \"!=\"", "Replace \"<>\" with \"!=\"",
+                "Replace \"<>\" with \"!=\"", "Replace \"^=\" with \"!=\"", "Replace \"<>\" with \"!=\"")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("inequality_usage_check.sql"), InequalityUsageCheck(), getPath("inequality_usage_check.fixed.sql"))
     }
 
 }

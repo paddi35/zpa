@@ -1,17 +1,17 @@
-create or replace procedure foo(bar number) is -- Noncompliant {{Explicitly declare this parameter as IN.}}
+create or replace procedure foo(bar in number) is -- Noncompliant {{Explicitly declare this parameter as IN.}}
 --                              ^^^^^^^^^^
 begin
   null;
 end;
 /
-CREATE OR REPLACE PROCEDURE FOO(BAR NUMBER, BAZ VARCHAR2 DEFAULT 'X') IS -- Noncompliant
+CREATE OR REPLACE PROCEDURE FOO(BAR IN NUMBER, BAZ IN VARCHAR2 DEFAULT 'X') IS -- Noncompliant
 -- Noncompliant@-1
 BEGIN
   NULL;
 END;
 /
 create or replace function foo(bar
-                               varchar2) return number is -- Noncompliant @-1
+                               in varchar2) return number is -- Noncompliant @-1
 begin
   return 1;
 end;

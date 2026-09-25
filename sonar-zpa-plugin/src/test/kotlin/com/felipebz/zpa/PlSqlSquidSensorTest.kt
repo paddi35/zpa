@@ -138,6 +138,37 @@ class PlSqlSquidSensorTest {
         assertThat(context.highlightingTypeAt(key, 7, lineOffset(1))).containsExactly(TypeOfText.KEYWORD)
     }
 
+    @Test
+    fun shouldFlagIssuesWithQuickFixes() {
+        val activeRules = ActiveRulesBuilder()
+            .addRule(NewActiveRule.Builder().setRuleKey(RuleKey.of(PlSqlRuleRepository.KEY, "EmptyBlock")).build())
+            .addRule(NewActiveRule.Builder().setRuleKey(RuleKey.of(PlSqlRuleRepository.KEY, "InequalityUsage")).build())
+            .build()
+        val sensor = PlSqlSquidSensor(
+            activeRules,
+            MapSettings().asConfig(),
+            mock(NoSonarFilter::class.java),
+            mock(FileLinesContextFactory::class.java),
+            null,
+            ObjectLocator()
+        )
+
+        val relativePath = "src/test/resources/com/felipebz/zpa/quick_fix.sql"
+        val inputFile = TestInputFileBuilder("key", relativePath)
+            .setLanguage(PlSql.KEY)
+            .setType(InputFile.Type.TEST)
+            .setCharset(StandardCharsets.UTF_8)
+            .initMetadata(File(relativePath).readText())
+            .setModuleBaseDir(Paths.get(""))
+            .build()
+        context.fileSystem().add(inputFile)
+
+        sensor.execute(context)
+
+        assertThat(context.allIssues().associate { it.ruleKey().rule() to it.isQuickFixAvailable })
+            .containsExactlyInAnyOrderEntriesOf(mapOf("EmptyBlock" to false, "InequalityUsage" to true))
+    }
+
     private fun lineOffset(offset: Int): Int {
         return offset - 1
     }

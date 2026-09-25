@@ -19,14 +19,25 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class VariableInitializationWithNullCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("variable_initialization_with_null.sql"), VariableInitializationWithNullCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = VariableInitializationWithNullCheck()
+        PlSqlCheckVerifier.verify(getPath("variable_initialization_with_null.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly(*Array(8) { "Remove the initialization to NULL" })
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("variable_initialization_with_null.sql"), VariableInitializationWithNullCheck(), getPath("variable_initialization_with_null.fixed.sql"))
     }
 
 }

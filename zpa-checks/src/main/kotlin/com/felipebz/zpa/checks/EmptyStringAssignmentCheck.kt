@@ -22,6 +22,7 @@ package com.felipebz.zpa.checks
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MINOR)
 @ConstantRemediation("2min")
@@ -37,7 +38,9 @@ class EmptyStringAssignmentCheck : AbstractBaseCheck() {
         val value = node.getLastChildOrNull(PlSqlGrammar.LITERAL)
 
         if (value != null && CheckUtils.isEmptyString(value)) {
+            // Oracle treats '' as NULL, so the replacement does not change the behavior
             addIssue(node, getLocalizedMessage())
+                .addQuickFix(getQuickFixMessage(), TextEdit.replace(value, CheckUtils.matchKeywordCase("NULL", node)))
         }
     }
 
