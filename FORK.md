@@ -13,6 +13,8 @@ the upstream `main` branch):
   in the testkit). Built-in fixes: `InequalityUsage`, `ComparisonWithNull`, `UselessParenthesis`,
   `VariableInitializationWithNull`, `DeclareSectionWithoutDeclarations`, `ExplicitInParameter` and
   `EmptyStringAssignment`. The SonarQube plugin marks those issues as having a quick fix.
+- CI: the SonarQube integration tests and the snapshot publication only run in `felipebz/zpa` (they need
+  upstream secrets).
 
 Artifacts built from this fork use versions ending in `-local-SNAPSHOT` so that they are never
 confused with official ZPA releases.
