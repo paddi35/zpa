@@ -118,6 +118,7 @@ open class PlSqlCheck : PlSqlVisitor() {
     class PreciseIssue(private val primaryLocation: IssueLocation) {
         private var cost: Int? = null
         private val secondaryLocations = mutableListOf<IssueLocation>()
+        private val quickFixes = mutableListOf<QuickFix>()
 
         fun cost() = cost
 
@@ -136,5 +137,14 @@ open class PlSqlCheck : PlSqlVisitor() {
         }
 
         fun secondaryLocations(): List<IssueLocation> = secondaryLocations
+
+        /** Offers an automatic correction for this issue. An issue may have several alternative quick fixes. */
+        fun addQuickFix(quickFix: QuickFix) = apply {
+            quickFixes.add(quickFix)
+        }
+
+        fun addQuickFix(message: String, vararg edits: TextEdit) = addQuickFix(QuickFix(message, *edits))
+
+        fun quickFixes(): List<QuickFix> = Collections.unmodifiableList(quickFixes)
     }
 }

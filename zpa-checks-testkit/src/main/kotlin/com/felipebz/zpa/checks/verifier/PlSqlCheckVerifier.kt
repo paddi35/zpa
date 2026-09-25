@@ -122,6 +122,40 @@ class PlSqlCheckVerifier : PlSqlCheck() {
 
         }
 
+        /**
+         * Applies the first quick fix of every issue that [check] raises in [path] and compares the result with the
+         * contents of [fixedPath]. Also verifies that [check] raises no issue with a quick fix in [fixedPath], so a
+         * fix really removes its issue. Line endings are ignored in the comparison.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun verifyQuickFixes(path: String, check: PlSqlCheck, fixedPath: String, metadata: FormsMetadata? = null) {
+            val file = File(path)
+            val edits = scan(file, check, metadata).mapNotNull { it.quickFixes().firstOrNull() }.flatMap { it.edits() }
+            val actual = QuickFixApplier.apply(file.readText(), edits)
+
+            val fixedFile = File(fixedPath)
+            val expected = fixedFile.readText()
+            if (normalizeLineEndings(actual) != normalizeLineEndings(expected)) {
+                throw AssertionError("The quick fixes of $path do not produce $fixedPath.\n" +
+                    "--- expected ---\n$expected\n--- actual ---\n$actual")
+            }
+
+            val remaining = scan(fixedFile, check, metadata).filter { it.quickFixes().isNotEmpty() }
+            if (remaining.isNotEmpty()) {
+                val issue = remaining.first()
+                throw AssertionError("Issue with quick fix remains after applying the quick fixes at line " +
+                    "${line(issue)} of $fixedPath: \"${issue.primaryLocation().message()}\"")
+            }
+        }
+
+        private fun scan(file: File, check: PlSqlCheck, metadata: FormsMetadata?): List<PreciseIssue> {
+            TestPlSqlVisitorRunner.scanFile(file, metadata, SymbolVisitor(DefaultTypeSolver(), isGlobalContext = true), check)
+            return check.issues().toList()
+        }
+
+        private fun normalizeLineEndings(text: String) = text.replace("\r\n", "\n").replace('\r', '\n')
+
         private fun verifyIssue(expected: TestIssue, actual: PreciseIssue) {
             if (line(actual) > expected.line) {
                 throw AssertionError("Missing issue at line ${expected.line}")

@@ -45,4 +45,5 @@ data class ZpaIssue internal constructor(
     val cost = issue.cost()
     val primaryLocation = issue.primaryLocation()
     val secondaryLocations = issue.secondaryLocations()
+    val quickFixes = issue.quickFixes()
 }
