@@ -60,11 +60,8 @@ class MetricsVisitor : PlSqlCheck() {
         val line = trivia.token.line
         val endLine = trivia.token.endLine
         val firstLineContainsNoSonar = comment.indexOfAny(newlineChars).let {
-            if (it == -1) {
-                comment.contains("NOSONAR", ignoreCase = true)
-            } else {
-                comment.regionMatches(0, "NOSONAR", 0, it, ignoreCase = true)
-            }
+            val firstLine = if (it == -1) comment else comment.substring(0, it)
+            firstLine.contains("NOSONAR", ignoreCase = true)
         }
 
         for (i in line .. endLine) {
