@@ -47,4 +47,9 @@ testing {
     }
 }
 
+dependencies {
+    // QuickFixApplier, to verify that the quick fixes keep the code parsable
+    "integrationTestImplementation"(project(path = ":zpa-checks-testkit", configuration = "rawRuntimeElements"))
+}
+
 description = "ZPA Checks"

@@ -23,6 +23,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MINOR)
 @ConstantRemediation("2min")
@@ -36,7 +37,10 @@ class ExplicitInParameterCheck : AbstractBaseCheck() {
 
     override fun visitNode(node: AstNode) {
         if (!node.hasDirectChildren(PlSqlKeyword.IN, PlSqlKeyword.OUT)) {
+            // IN is the default mode, so declaring it explicitly does not change anything
+            val datatype = node.children[1]
             addIssue(node, getLocalizedMessage())
+                .addQuickFix(getQuickFixMessage(), TextEdit.insertBefore(datatype, CheckUtils.matchKeywordCase("IN", node) + " "))
         }
     }
 

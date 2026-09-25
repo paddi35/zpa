@@ -19,14 +19,27 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class ComparisonWithNullCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("comparison_with_null.sql"), ComparisonWithNullCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = ComparisonWithNullCheck()
+        PlSqlCheckVerifier.verify(getPath("comparison_with_null.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly("Change to \"is null\"", "Change to \"is null\"", "Change to \"is not null\"", "Change to \"is not null\"",
+                "Change to \"is null\"", "Change to \"is not null\"", "Change to \"is not null\"", "Change to \"IS NULL\"", "Change to \"IS NULL\"",
+                "Change to \"is null\"", "Change to \"is null\"", "Change to \"is null\"")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("comparison_with_null.sql"), ComparisonWithNullCheck(), getPath("comparison_with_null.fixed.sql"))
     }
 
 }

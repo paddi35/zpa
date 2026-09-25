@@ -21,7 +21,9 @@ package com.felipebz.zpa.checks
 
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
+import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MINOR)
 @ConstantRemediation("2min")
@@ -37,9 +39,28 @@ class VariableInitializationWithNullCheck : AbstractBaseCheck() {
         if (node.hasParent(PlSqlGrammar.VARIABLE_DECLARATION, PlSqlGrammar.RECORD_FIELD_DECLARATION)) {
             val expression = node.lastChild
             if (CheckUtils.isNullLiteralOrEmptyString(expression)) {
-                addIssue(node, getLocalizedMessage())
+                val issue = addIssue(node, getLocalizedMessage())
+                if (canRemove(node)) {
+                    // remove " := NULL" including the whitespace before it
+                    val previous = node.previousSibling.lastToken
+                    issue.addQuickFix(getQuickFixMessage(), TextEdit(previous.endLine, previous.endColumn,
+                        node.lastToken.endLine, node.lastToken.endColumn, ""))
+                }
             }
         }
+    }
+
+    /**
+     * A constant or a NOT NULL variable must be initialized (the code does not compile anyway), and comments
+     * inside the removed text would be lost.
+     */
+    private fun canRemove(node: AstNode): Boolean {
+        val declaration = node.parent
+        val nullConstraint = declaration.getFirstChildOrNull(PlSqlGrammar.DATATYPE_NULL_CONSTRAINT)
+        return !declaration.hasDirectChildren(PlSqlKeyword.CONSTANT) &&
+            nullConstraint?.hasDirectChildren(PlSqlKeyword.NOT) != true &&
+            node.previousSiblingOrNull != null &&
+            node.tokens.none { token -> token.trivia.any { it.isComment } }
     }
 
 }

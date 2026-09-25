@@ -28,6 +28,10 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.fail
 import com.felipebz.zpa.checks.CheckList
 import com.felipebz.zpa.checks.ParsingErrorCheck
+import com.felipebz.zpa.checks.verifier.QuickFixApplier
+import com.felipebz.zpa.parser.PlSqlParser
+import com.felipebz.zpa.squid.PlSqlConfiguration
+import com.felipebz.zpa.squid.ZpaIssue
 import com.felipebz.zpa.metadata.FormsMetadata
 import com.felipebz.zpa.squid.AstScanner
 import com.felipebz.zpa.api.PlSqlFile
@@ -239,6 +243,11 @@ class PlSqlRulingTest {
             fail(differences)
         }
 
+        val brokenQuickFixes = verifyQuickFixes(issues)
+        if (brokenQuickFixes.isNotEmpty()) {
+            fail("Quick fixes produce code with parsing errors:$brokenQuickFixes")
+        }
+
         if (issues.none { it.check is ParsingErrorCheck }) {
             // if there are no parsing errors, rerun the scanner with the error recovery enabled to check if it is working
             val newScanner = AstScanner(listOf(ParsingErrorCheck()), metadata, true, StandardCharsets.UTF_8)
@@ -259,6 +268,30 @@ class PlSqlRulingTest {
         }
 
         summary.add(summaryItem(project, files.size, classifiedParsingErrors))
+    }
+
+    /**
+     * Applies the quick fixes of each check to every file that the parser accepts and verifies that the parser
+     * still accepts the result.
+     */
+    private fun verifyQuickFixes(issues: List<ZpaIssue>): String {
+        val parser = PlSqlParser.create(PlSqlConfiguration(StandardCharsets.UTF_8))
+        val filesWithParsingErrors = issues.filter { it.check is ParsingErrorCheck }.map { it.file }.toSet()
+        var errors = ""
+        issues
+            .filter { it.quickFixes.isNotEmpty() && it.file !in filesWithParsingErrors }
+            .groupBy { it.file to it.check }
+            .forEach { (key, fileIssues) ->
+                val (file, check) = key
+                val edits = fileIssues.flatMap { it.quickFixes.first().edits() }
+                try {
+                    parser.parse(QuickFixApplier.apply(file.contents(), edits))
+                } catch (e: Exception) {
+                    errors += "\n${check::class.simpleName} on ${(file as InputFile).pathRelativeToBase}: " +
+                        e.message?.lineSequence()?.firstOrNull()
+                }
+            }
+        return errors
     }
 
     companion object {

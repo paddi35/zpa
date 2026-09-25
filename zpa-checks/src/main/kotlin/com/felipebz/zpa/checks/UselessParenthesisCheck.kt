@@ -23,6 +23,7 @@ import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.typeIs
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MINOR)
 @ConstantRemediation("2min")
@@ -37,7 +38,11 @@ class UselessParenthesisCheck : AbstractBaseCheck() {
     override fun visitNode(node: AstNode) {
         val parent = node.parent
         if (parent.typeIs(PlSqlGrammar.BRACKED_EXPRESSION) && parent.numberOfChildren == 3) {
-            addIssue(node, getLocalizedMessage())
+            val issue = addIssue(node, getLocalizedMessage())
+            // "(x) DAY TO SECOND" needs its parentheses
+            if (node.numberOfChildren == 3) {
+                issue.addQuickFix(getQuickFixMessage(), TextEdit.remove(node.firstChild), TextEdit.remove(node.lastChild))
+            }
         }
     }
 

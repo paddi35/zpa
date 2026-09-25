@@ -19,14 +19,25 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class UselessParenthesisCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("useless_parenthesis.sql"), UselessParenthesisCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = UselessParenthesisCheck()
+        PlSqlCheckVerifier.verify(getPath("useless_parenthesis.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly(*Array(5) { "Remove the useless parentheses" })
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("useless_parenthesis.sql"), UselessParenthesisCheck(), getPath("useless_parenthesis.fixed.sql"))
     }
 
 }

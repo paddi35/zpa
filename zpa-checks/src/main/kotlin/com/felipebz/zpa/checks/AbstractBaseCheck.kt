@@ -21,6 +21,7 @@ package com.felipebz.zpa.checks
 
 import com.felipebz.zpa.CustomAnnotationBasedRulesDefinition.Companion.convertCheckClassName
 import com.felipebz.zpa.api.checks.PlSqlCheck
+import java.text.MessageFormat
 import java.util.*
 
 abstract class AbstractBaseCheck : PlSqlCheck() {
@@ -33,6 +34,11 @@ abstract class AbstractBaseCheck : PlSqlCheck() {
 
     protected fun getLocalizedMessage(key: String): String {
         return bundle.getString("${convertCheckClassName(this::class.java)}.$key")
+    }
+
+    /** Returns the description of the rule's quick fix (key `<RuleKey>.quickfix`). */
+    protected fun getQuickFixMessage(vararg messageParameters: Any): String {
+        return MessageFormat.format(getLocalizedMessage("quickfix"), *messageParameters)
     }
 
 

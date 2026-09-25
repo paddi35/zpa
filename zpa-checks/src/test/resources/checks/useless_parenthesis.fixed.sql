@@ -1,11 +1,11 @@
 begin
-  var := ((x = 1)); -- Noncompliant {{Remove those useless parenthesis.}}
+  var := (x = 1); -- Noncompliant {{Remove those useless parenthesis.}}
 --        ^^^^^^^
-  var := ( ( a + b ) ) * (((c))); -- Noncompliant
+  var := (  a + b  ) * (c); -- Noncompliant
   -- Noncompliant@-1
   -- Noncompliant@-2
-  var := ((a
-    + b)); -- Noncompliant @-1
+  var := (a
+    + b); -- Noncompliant @-1
 
   -- noncompliant code without a quick fix
   var := ((a - b) day to second); -- Noncompliant

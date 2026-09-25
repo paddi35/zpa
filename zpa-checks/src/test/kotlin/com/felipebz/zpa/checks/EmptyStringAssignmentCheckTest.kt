@@ -19,14 +19,25 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class EmptyStringAssignmentCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("empty_string_assignment.sql"), EmptyStringAssignmentCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = EmptyStringAssignmentCheck()
+        PlSqlCheckVerifier.verify(getPath("empty_string_assignment.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly(*Array(3) { "Replace the empty string with NULL" })
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("empty_string_assignment.sql"), EmptyStringAssignmentCheck(), getPath("empty_string_assignment.fixed.sql"))
     }
 
 }

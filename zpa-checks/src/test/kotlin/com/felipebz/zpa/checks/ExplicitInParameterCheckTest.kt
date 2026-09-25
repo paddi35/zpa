@@ -19,14 +19,25 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class ExplicitInParameterCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("explicit_in_parameter.sql"), ExplicitInParameterCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = ExplicitInParameterCheck()
+        PlSqlCheckVerifier.verify(getPath("explicit_in_parameter.sql"), check)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .containsExactly(*Array(4) { "Declare the parameter as IN" })
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("explicit_in_parameter.sql"), ExplicitInParameterCheck(), getPath("explicit_in_parameter.fixed.sql"))
     }
 
 }
