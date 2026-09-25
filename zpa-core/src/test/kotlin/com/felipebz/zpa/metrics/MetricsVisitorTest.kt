@@ -49,7 +49,7 @@ class MetricsVisitorTest {
     @Test
     fun no_sonar() {
         TestPlSqlVisitorRunner.scanFile(File("src/test/resources/metrics/no_sonar.sql"), null, visitor)
-        assertThat(visitor.linesWithNoSonar).containsOnly(3, 4)
+        assertThat(visitor.linesWithNoSonar).containsOnly(3, 4, 5, 6, 7)
     }
 
     @Test
