@@ -13,6 +13,8 @@ the upstream `main` branch):
   in the testkit). Built-in fixes: `InequalityUsage`, `ComparisonWithNull`, `UselessParenthesis`,
   `VariableInitializationWithNull`, `DeclareSectionWithoutDeclarations`, `ExplicitInParameter` and
   `EmptyStringAssignment`. The SonarQube plugin marks those issues as having a quick fix.
+- A UTF-8 byte order mark at the start of a file is ignored by the lexer (previously a parsing error at 1:0);
+  columns on the first line are counted without it. The toolkit drops it when opening a file.
 - CI: the SonarQube integration tests and the snapshot publication only run in `felipebz/zpa` (they need
   upstream secrets).
 

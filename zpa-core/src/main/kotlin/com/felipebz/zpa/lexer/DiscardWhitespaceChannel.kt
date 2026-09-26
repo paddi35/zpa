@@ -26,11 +26,22 @@ import com.felipebz.flr.impl.LexerOutput
 class DiscardWhitespaceChannel : Channel<LexerOutput> {
 
     override fun consume(code: CodeReader, output: LexerOutput): Boolean {
+        if (code[0] == BYTE_ORDER_MARK && code.getLinePosition() == 1 && code.getColumnPosition() == 0) {
+            // A byte order mark at the start of the file is not part of the source code. Editors do not count it as
+            // a column, so the first token of the file must still start at column 0.
+            code.pop()
+            code.setColumnPosition(0)
+            return true
+        }
         if (code[0].isWhitespace() && code[1] != '&') {
             code.pop()
             return true
         }
         return false
+    }
+
+    private companion object {
+        const val BYTE_ORDER_MARK = '﻿'
     }
 
 }

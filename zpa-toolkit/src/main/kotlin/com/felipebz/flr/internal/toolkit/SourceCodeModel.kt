@@ -50,7 +50,8 @@ internal class SourceCodeModel(private val configurationModel: ConfigurationMode
 
     fun setSourceCode(source: File, charset: Charset) {
         val fileId = FileId(source.toPath().toAbsolutePath().normalize().toString())
-        setSourceCode(source.readText(charset), fileId)
+        // Drop a byte order mark, like editors do, so that token columns on the first line match the displayed text.
+        setSourceCode(source.readText(charset).removePrefix("﻿"), fileId)
     }
 
     fun setSourceCode(sourceCode: String) {
