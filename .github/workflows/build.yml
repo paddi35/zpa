@@ -54,7 +54,8 @@ jobs:
   integration-tests:
     name: IT
     needs: build
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # The SonarQube downloads need upstream secrets (OCI_*), which forks don't have.
+    if: github.repository == 'felipebz/zpa' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -103,7 +104,7 @@ jobs:
     permissions:
       contents: read
     needs: integration-tests
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.repository == 'felipebz/zpa' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
       group: zpa-maven-publication-main
