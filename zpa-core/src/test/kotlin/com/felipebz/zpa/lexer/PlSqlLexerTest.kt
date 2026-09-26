@@ -392,6 +392,46 @@ class PlSqlLexerTest {
     }
 
     @Test
+    fun byteOrderMarkAtStartOfFileIsIgnored() {
+        val withBom = lexer.lex("﻿select 1 from dual")
+        val withoutBom = lexer.lex("select 1 from dual")
+
+        assertThat(withBom.map { Triple(it.originalValue, it.line, it.column) })
+            .isEqualTo(withoutBom.map { Triple(it.originalValue, it.line, it.column) })
+        assertThat(withBom[0].column).isZero()
+    }
+
+    @Test
+    fun byteOrderMarkBeforeCommentKeepsColumns() {
+        val tokens = lexer.lex("﻿-- comment\nselect 1 from dual")
+        val comment = tokens[0].trivia.single().token
+
+        assertThat(comment.originalValue).isEqualTo("-- comment")
+        assertThat(comment.line).isEqualTo(1)
+        assertThat(comment.column).isZero()
+        assertThat(tokens[0].line).isEqualTo(2)
+        assertThat(tokens[0].column).isZero()
+    }
+
+    @Test
+    fun byteOrderMarkAtStartOfFileDoesNotBreakParsing() {
+        val p = PlSqlParser.create(PlSqlConfiguration(StandardCharsets.UTF_8, false))
+        p.setRootRule(p.grammar.rule(PlSqlGrammar.BLOCK_STATEMENT))
+
+        val node = p.parse("﻿begin\n  null;\nend;")
+
+        assertThat(node.getDescendants(PlSqlGrammar.NULL_STATEMENT)).hasSize(1)
+        assertThat(node.token.column).isZero()
+    }
+
+    @Test
+    fun byteOrderMarkIsOnlyIgnoredAtStartOfFile() {
+        val tokens = lexer.lex("select﻿ 1 from dual")
+
+        assertThat(tokens.map { it.originalValue }).contains("﻿")
+    }
+
+    @Test
     fun dateLiteral() {
         assertThatIsToken("DATE '2015-01-01'", PlSqlTokenType.DATE_LITERAL)
         assertThatIsToken("date '2015-01-01'", PlSqlTokenType.DATE_LITERAL)
