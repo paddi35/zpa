@@ -89,6 +89,9 @@ object CheckList {
                 UnresolvedUtPlSqlSetupCleanupReferenceCheck::class.java,
                 UtPlSqlTestShouldHaveDescriptionCheck::class.java,
                 RedundantExpectationCheck::class.java,
-                UnnecessaryLikeCheck::class.java)
+                UnnecessaryLikeCheck::class.java,
+                EmptyOthersHandlerCheck::class.java,
+                DmlInLoopCheck::class.java,
+                BulkCollectWithoutLimitCheck::class.java)
 
 }

@@ -1,0 +1,18 @@
+{
+  "development/mystats/mystats_pkg.sql" : [
+    276
+  ],
+  "source/core/ut_suite_cache_manager.pkb" : [
+    282
+  ],
+  "test/ut3_tester/core/annotations/test_annotation_manager.pkb" : [
+    139,
+    428
+  ],
+  "test/ut3_tester_helper/run_helper.pkb" : [
+    878
+  ],
+  "test/ut3_user/reporters/test_coverage/test_coverage_standalone.pkb" : [
+    93
+  ]
+}

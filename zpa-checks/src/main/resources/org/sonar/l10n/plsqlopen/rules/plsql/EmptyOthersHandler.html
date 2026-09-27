@@ -1,0 +1,29 @@
+<p>A <code>WHEN OTHERS</code> exception handler whose body is empty or contains
+only a <code>NULL</code> statement silently swallows every error that reaches it,
+including ones the code was not written to anticipate. The failure disappears
+without a trace, which makes the resulting bug much harder to diagnose later.</p>
+
+<pre>
+begin
+  do_something();
+exception
+  when others then
+    null; -- Noncompliant
+end;
+</pre>
+
+<p>Log the error, re-raise it, or handle it explicitly instead:</p>
+
+<pre>
+begin
+  do_something();
+exception
+  when others then
+    log_error(sqlerrm);
+    raise;
+end;
+</pre>
+
+<p>This rule only flags a bare <code>WHEN OTHERS</code> handler (not combined with
+<code>OR</code> and another exception name). A handler for a named exception, or one
+combined with <code>OTHERS</code> via <code>OR</code>, is not reported.</p>
