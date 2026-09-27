@@ -8,6 +8,19 @@ begin
    where col in (x, y, x); -- Noncompliant {{Remove or fix the duplicated value "x" in the IN condition.}} [[secondary=8]]
 --                     ^
    
+  var := (x in (1, 2, 1, 3, 2)); -- Noncompliant
+  -- Noncompliant@-1
+  var := (x in (1, 1, 1)); -- Noncompliant
+  -- Noncompliant@-1
+  var := (x in (1, (1))); -- Noncompliant
+  var := (x in ('a',
+                'b',
+                'a')); -- Noncompliant
+
+  -- noncompliant code without a quick fix
+  var := (x in (f(1), f(1))); -- Noncompliant
+  var := (x in (1, /* again */ 1)); -- Noncompliant
+
   -- correct
   var := (x in (1, 2, 3));
 end;

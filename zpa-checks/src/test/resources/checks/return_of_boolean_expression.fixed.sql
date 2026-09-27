@@ -1,78 +1,38 @@
 begin
   -- Noncompliant@+1 {{Replace this if-then-else statement by a single return statement.}}
-  if (a = b) then
-    return true;
-  else
-    return false;
-  end if;
+  return (a = b);
 
   -- Noncompliant@+1
-  if (a = b) then
-    return false;
-  else
-    return true;
-  end if;
+  return not (a = b);
 
   -- Noncompliant@+1
-  if a = b and c = d then
-    return false;
-  else
-    return true;
-  end if;
+  return not (a = b and c = d);
 
   -- Noncompliant@+1
-  if a = b or c = d then
-    return true;
-  else
-    return false;
-  end if;
+  return a = b or c = d;
 
   -- Noncompliant@+1
-  if a = b or c = d then
-    return false;
-  else
-    return true;
-  end if;
+  return not (a = b or c = d);
 
   -- Noncompliant@+1
-  if not a then
-    return false;
-  else
-    return true;
-  end if;
+  return a;
 
   -- Noncompliant@+1
-  if not   a then
-    return true;
-  else
-    return false;
-  end if;
+  return not   a;
 
   -- Noncompliant@+1
-  if x is null then return false; else return true; end if;
+  return not (x is null);
 
   -- Noncompliant@+1
-  IF x > 0
-     AND y > 0 THEN
-    RETURN TRUE;
-  ELSE
-    RETURN FALSE;
-  END IF;
+  RETURN x > 0
+     AND y > 0;
 
   -- Noncompliant@+1
   <<check_x>>
-  if x > 0 then
-    return true;
-  else
-    return false;
-  end if check_x;
+  return x > 0;
 
   -- Noncompliant@+1
-  if names.exists(x) then
-    return false;
-  else
-    return true;
-  end if;
+  return not names.exists(x);
 
   -- noncompliant code without a quick fix: a comment would be deleted
   if (a = b) then -- Noncompliant

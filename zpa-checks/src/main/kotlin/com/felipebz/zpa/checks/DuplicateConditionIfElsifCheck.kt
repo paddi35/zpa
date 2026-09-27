@@ -20,9 +20,11 @@
 package com.felipebz.zpa.checks
 
 import com.felipebz.flr.api.AstNode
+import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
 import com.felipebz.zpa.api.syntax.IfStatement
 import com.felipebz.zpa.api.syntax.SyntaxViews
+import com.felipebz.zpa.typeIs
 
 @Rule(priority = Priority.BLOCKER, tags = [Tags.BUG])
 @ConstantRemediation("5min")
@@ -31,8 +33,20 @@ import com.felipebz.zpa.api.syntax.SyntaxViews
 @OptIn(ZpaExperimentalApi::class)
 class DuplicateConditionIfElsifCheck : AbstractBaseCheck() {
 
+    private val removals = mutableListOf<QuickFixUtils.Removal>()
+
     override fun init() {
         subscribeTo(SyntaxViews.IF_STATEMENT, ::visitIfStatement)
+    }
+
+    override fun visitFile(node: AstNode) {
+        removals.clear()
+    }
+
+    override fun leaveFile(node: AstNode) {
+        // a removed branch can contain another IF statement with a duplicated condition
+        QuickFixUtils.addOutermostRemovals(removals)
+        removals.clear()
     }
 
     private fun visitIfStatement(statement: IfStatement) {
@@ -51,10 +65,26 @@ class DuplicateConditionIfElsifCheck : AbstractBaseCheck() {
         for (j in 0 until index) {
             val otherCondition = conditions[j]
             if (CheckUtils.equalNodes(otherCondition, condition)) {
-                addIssue(condition, getLocalizedMessage(), otherCondition.token.line)
+                val issue = addIssue(condition, getLocalizedMessage(), otherCondition.token.line)
                         .secondary(otherCondition, "Original")
+                addRemoval(issue, condition)
                 return
             }
+        }
+    }
+
+    /**
+     * Removes the ELSIF branch of the duplicated condition: it can never be executed, because the earlier branch with
+     * the same condition is taken whenever the condition is true. Not if the condition calls a function: it could
+     * return another value the second time or have side effects.
+     */
+    private fun addRemoval(issue: PreciseIssue, condition: AstNode) {
+        // only conditions of ELSIF branches are compared with earlier ones
+        val branch = condition.parent
+        if (branch.typeIs(PlSqlGrammar.ELSIF_CLAUSE) &&
+            !condition.typeIs(PlSqlGrammar.METHOD_CALL) && !condition.hasDescendant(PlSqlGrammar.METHOD_CALL)) {
+            removals.add(QuickFixUtils.Removal(issue, getQuickFixMessage(),
+                QuickFixUtils.removeWithLeadingWhitespace(branch)))
         }
     }
 

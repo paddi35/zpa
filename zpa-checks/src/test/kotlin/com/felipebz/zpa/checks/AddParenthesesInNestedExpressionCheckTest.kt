@@ -19,14 +19,26 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class AddParenthesesInNestedExpressionCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("add_parentheses_in_nested_expression.sql"), AddParenthesesInNestedExpressionCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = AddParenthesesInNestedExpressionCheck()
+        PlSqlCheckVerifier.verify(getPath("add_parentheses_in_nested_expression.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(2, 4, 6, 13, 16, 17, 17, 19)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Add parentheses around the AND condition")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("add_parentheses_in_nested_expression.sql"), AddParenthesesInNestedExpressionCheck(), getPath("add_parentheses_in_nested_expression.fixed.sql"))
     }
 
 }

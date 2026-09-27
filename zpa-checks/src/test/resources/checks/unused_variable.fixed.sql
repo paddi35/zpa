@@ -1,15 +1,12 @@
 declare
-  var number; -- Noncompliant {{Remove this unused "VAR" local variable.}}
   i number; -- Noncompliant {{Remove this unused "I" local variable.}}
   
   procedure proc is
-    proc_var number;  -- Noncompliant {{Remove this unused "PROC_VAR" local variable.}}
   begin
     null;
   end;
   
   function func return number is
-    func_var number;  -- Noncompliant {{Remove this unused "FUNC_VAR" local variable.}}
   begin
     null;
   end;
@@ -17,7 +14,6 @@ begin
   null;
   
   declare
-    var2 number; -- Noncompliant {{Remove this unused "VAR2" local variable.}}
   begin
     null;
   end;
@@ -29,7 +25,6 @@ end;
 /
 
 create or replace package body test is
-  package_body_var number;  -- Noncompliant {{Remove this unused "PACKAGE_BODY_VAR" local variable.}}
   hidden_var number;  -- Noncompliant {{Remove this unused "HIDDEN_VAR" local variable.}}
   "VAR" number; -- Noncompliant {{Remove this unused "VAR" local variable.}}
   "var" number;
@@ -47,11 +42,7 @@ end;
 
 declare
   -- documented but unused
-  documented number; -- Noncompliant
-  with_default number := 1 + 2; -- Noncompliant
-  a number; b number; -- Noncompliant
   -- Noncompliant@-1
-  e exception; -- Noncompliant
   used number;
 begin
   used := 1;

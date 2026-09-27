@@ -1,58 +1,58 @@
-CREATE OR REPLACE FUNCTION current_date_value RETURN DATE DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION current_date_value RETURN DATE IS -- Noncompliant
 BEGIN
   RETURN CURRENT_DATE;
 END;
 /
 
-CREATE OR REPLACE FUNCTION system_date_value RETURN DATE DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION system_date_value RETURN DATE IS -- Noncompliant
 BEGIN
   RETURN SYSDATE;
 END;
 /
 
-CREATE OR REPLACE FUNCTION system_timestamp_value RETURN TIMESTAMP DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION system_timestamp_value RETURN TIMESTAMP IS -- Noncompliant
 BEGIN
   RETURN SYSTIMESTAMP;
 END;
 /
 
-CREATE OR REPLACE FUNCTION current_timestamp_value RETURN TIMESTAMP DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION current_timestamp_value RETURN TIMESTAMP IS -- Noncompliant
 BEGIN
   RETURN CURRENT_TIMESTAMP;
 END;
 /
 
-CREATE OR REPLACE FUNCTION local_timestamp_value RETURN TIMESTAMP DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION local_timestamp_value RETURN TIMESTAMP IS -- Noncompliant
 BEGIN
   RETURN LOCALTIMESTAMP;
 END;
 /
 
-CREATE OR REPLACE FUNCTION random_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION random_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   RETURN DBMS_RANDOM.VALUE;
 END;
 /
 
-CREATE OR REPLACE FUNCTION random_number RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION random_number RETURN NUMBER IS -- Noncompliant
 BEGIN
   RETURN DBMS_RANDOM.RANDOM;
 END;
 /
 
-CREATE OR REPLACE FUNCTION generated_identifier RETURN RAW DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION generated_identifier RETURN RAW IS -- Noncompliant
 BEGIN
   RETURN SYS_GUID();
 END;
 /
 
-CREATE OR REPLACE FUNCTION session_value RETURN VARCHAR2 DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION session_value RETURN VARCHAR2 IS -- Noncompliant
 BEGIN
   RETURN SYS_CONTEXT('USERENV', 'SESSION_USER');
 END;
 /
 
-CREATE OR REPLACE FUNCTION read_value(p_id NUMBER) RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION read_value(p_id NUMBER) RETURN NUMBER IS -- Noncompliant
   v_value NUMBER;
 BEGIN
   SELECT value INTO v_value FROM test_table WHERE id = p_id;
@@ -60,28 +60,28 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION insert_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION insert_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   INSERT INTO test_table (id) VALUES (1);
   RETURN 1;
 END;
 /
 
-CREATE OR REPLACE FUNCTION update_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION update_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   UPDATE test_table SET value = 1 WHERE id = 1;
   RETURN 1;
 END;
 /
 
-CREATE OR REPLACE FUNCTION delete_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION delete_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   DELETE FROM test_table WHERE id = 1;
   RETURN 1;
 END;
 /
 
-CREATE OR REPLACE FUNCTION merge_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION merge_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   MERGE INTO test_table target
   USING source_table source
@@ -91,21 +91,21 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION commit_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION commit_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   COMMIT;
   RETURN 1;
 END;
 /
 
-CREATE OR REPLACE FUNCTION rollback_value RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION rollback_value RETURN NUMBER IS -- Noncompliant
 BEGIN
   ROLLBACK;
   RETURN 1;
 END;
 /
 
-CREATE OR REPLACE FUNCTION conditional_date_value(p_value NUMBER) RETURN DATE DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION conditional_date_value(p_value NUMBER) RETURN DATE IS -- Noncompliant
 BEGIN
   IF p_value > 0 THEN
     RETURN SYSDATE;
@@ -165,7 +165,7 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION read_cte_table RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION read_cte_table RETURN NUMBER IS -- Noncompliant
   v_value NUMBER;
 BEGIN
   WITH values_cte AS (
@@ -176,7 +176,7 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION read_chained_cte_table RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION read_chained_cte_table RETURN NUMBER IS -- Noncompliant
   v_value NUMBER;
 BEGIN
   WITH first_cte AS (
@@ -209,7 +209,7 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION out_parameter(p_value OUT NUMBER) RETURN NUMBER DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION out_parameter(p_value OUT NUMBER) RETURN NUMBER IS -- Noncompliant
 BEGIN
   RETURN 1;
 END;
@@ -241,7 +241,7 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION several_violations RETURN DATE DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION several_violations RETURN DATE IS -- Noncompliant
 BEGIN
   COMMIT;
   RETURN SYSDATE;
@@ -255,28 +255,27 @@ BEGIN
 END;
 /
 
-CREATE OR REPLACE FUNCTION keyword_on_own_line RETURN DATE
-  DETERMINISTIC -- Noncompliant
+CREATE OR REPLACE FUNCTION keyword_on_own_line RETURN DATE -- Noncompliant
 IS
 BEGIN
   RETURN SYSDATE;
 END;
 /
 
-CREATE OR REPLACE FUNCTION with_other_clauses RETURN DATE DETERMINISTIC PARALLEL_ENABLE RESULT_CACHE IS -- Noncompliant
+CREATE OR REPLACE FUNCTION with_other_clauses RETURN DATE PARALLEL_ENABLE RESULT_CACHE IS -- Noncompliant
 BEGIN
   RETURN SYSDATE;
 END;
 /
 
-CREATE OR REPLACE FUNCTION comment_before_keyword RETURN DATE /* pure */ DETERMINISTIC IS -- Noncompliant
+CREATE OR REPLACE FUNCTION comment_before_keyword RETURN DATE /* pure */  IS -- Noncompliant
 BEGIN
   RETURN SYSDATE;
 END;
 /
 
 create or replace function nested_deterministic return number is
-  function helper return date deterministic is -- Noncompliant
+  function helper return date is -- Noncompliant
   begin
     return sysdate;
   end;

@@ -1,17 +1,11 @@
 begin
   if foo then
     null;
-  elsif foo then -- Noncompliant {{This code can not be reached because the condition duplicates a previous condition in the same sequence of "if/else if" statements.}}
-    null;
   end if;
   
   if foo then
     null;
   elsif bar then
-    null;
-  elsif bar then -- Noncompliant
-    null;
-  elsif (bar) then -- Noncompliant
     null;
   end if;
   
@@ -19,9 +13,6 @@ begin
     x := 1;
   elsif a = 2 then
     x := 2;
-  elsif a = 1 then -- Noncompliant
-    x := 3;
-    y := 3;
   else
     x := 4;
   end if;
@@ -29,22 +20,14 @@ begin
   -- the removed branch contains another duplicated condition
   if b then
     null;
-  elsif b then -- Noncompliant
-    if c then
-      null;
-    elsif c then -- Noncompliant
-      null;
-    end if;
   end if;
 
   if d then
     null;
   -- a comment before the branch is kept
-  elsif d then -- Noncompliant
-    null;
   end if;
 
-  IF e THEN NULL; ELSIF e THEN NULL; END IF; -- Noncompliant
+  IF e THEN NULL; END IF; -- Noncompliant
 
   -- noncompliant code without a quick fix: the function could return another value
   if f(x) then

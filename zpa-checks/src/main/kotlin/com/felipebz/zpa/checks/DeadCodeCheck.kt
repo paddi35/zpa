@@ -30,9 +30,21 @@ import com.felipebz.zpa.api.annotations.*
 @ActivatedByDefault
 class DeadCodeCheck : AbstractBaseCheck() {
 
+    private val removals = mutableListOf<QuickFixUtils.Removal>()
+
     override fun init() {
         subscribeTo(*CheckUtils.terminationStatements)
         subscribeTo(PlSqlGrammar.METHOD_CALL)
+    }
+
+    override fun visitFile(node: AstNode) {
+        removals.clear()
+    }
+
+    override fun leaveFile(node: AstNode) {
+        // dead code can contain dead code: only the outermost removal is offered
+        QuickFixUtils.addOutermostRemovals(removals)
+        removals.clear()
     }
 
     override fun visitNode(node: AstNode) {
@@ -50,10 +62,24 @@ class DeadCodeCheck : AbstractBaseCheck() {
         }
         val nextSibling = node.nextSiblingOrNull
         if (nextSibling != null && nextSibling.typeIs(PlSqlGrammar.STATEMENT)) {
-            addIssue(nextSibling, getLocalizedMessage())
+            val issue = addIssue(nextSibling, getLocalizedMessage())
+            addRemoval(issue, nextSibling)
             return true
         }
         return false
+    }
+
+    /** Removes the unreachable statement and all statements after it in the same sequence. */
+    private fun addRemoval(issue: PreciseIssue, first: AstNode) {
+        val statements = generateSequence(first) { it.nextSiblingOrNull }
+            .takeWhile { it.typeIs(PlSqlGrammar.STATEMENT) }
+            .toList()
+        // a GOTO outside the removed code could jump to a label in it
+        if (statements.any { it.hasDescendant(PlSqlGrammar.LABEL) }) {
+            return
+        }
+        removals.add(QuickFixUtils.Removal(issue, getQuickFixMessage(),
+            QuickFixUtils.removeWithLeadingWhitespace(first, statements.last())))
     }
 
     private fun shouldCheckNode(node: AstNode?): Boolean {

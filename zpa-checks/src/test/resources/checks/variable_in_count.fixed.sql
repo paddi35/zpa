@@ -2,12 +2,12 @@ declare
   foo number;
 begin
 
-  select count(foo) -- Noncompliant {{Looks like there is a "foo" variable in this context. Review if this COUNT is correct.}}
+  select count(*) -- Noncompliant {{Looks like there is a "foo" variable in this context. Review if this COUNT is correct.}}
 --       ^^^^^^^^^^
     from tab;
     
-  SELECT COUNT( FOO ), -- Noncompliant
-         COUNT(foo) -- Noncompliant
+  SELECT COUNT( * ), -- Noncompliant
+         COUNT(*) -- Noncompliant
     INTO bar
     FROM tab;
 

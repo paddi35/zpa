@@ -24,6 +24,7 @@ import com.felipebz.zpa.typeIs
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.PlSqlPunctuator
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.BLOCKER, tags = [Tags.BUG])
 @ConstantRemediation("5min")
@@ -68,8 +69,14 @@ class DuplicatedValueInInCheck : AbstractBaseCheck() {
             val other = values[j]
 
             if (CheckUtils.equalNodes(current, other)) {
-                addIssue(current, getLocalizedMessage(), current.tokenOriginalValue)
+                val issue = addIssue(current, getLocalizedMessage(), current.tokenOriginalValue)
                         .secondary(other, "Original")
+                // remove ", value"; not if a function call could return another value or has side effects
+                val comma = current.previousSibling
+                if (comma.typeIs(PlSqlPunctuator.COMMA) && current.tokens.none { QuickFixUtils.hasComment(it) } &&
+                    !current.typeIs(PlSqlGrammar.METHOD_CALL) && !current.hasDescendant(PlSqlGrammar.METHOD_CALL)) {
+                    issue.addQuickFix(getQuickFixMessage(current.tokenOriginalValue), TextEdit.replace(comma, current, ""))
+                }
                 return
             }
         }

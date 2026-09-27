@@ -13,6 +13,11 @@ begin
       or x = 2 -- Noncompliant [[sc=10;el=+1;ec=15]]
      and y = 3;
      
+  var := (a or b and c and d or e); -- Noncompliant
+  var := (a or b and (c or d and e)); -- Noncompliant
+  -- Noncompliant@-1
+  var := (a or not b and c); -- Noncompliant
+
   -- correct
   var := (x = 1 or (x = 2 and y = 3));
   var := (x = 1 or (x = 2 and y = 3) or (x = 4 and y = 5));

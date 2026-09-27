@@ -29,6 +29,7 @@ import com.felipebz.zpa.api.annotations.Priority
 import com.felipebz.zpa.api.annotations.Rule
 import com.felipebz.zpa.api.annotations.RuleInfo
 import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.api.project.PackageSpecificationResolution
 import com.felipebz.zpa.api.project.SequenceReferenceResolution
 import com.felipebz.zpa.api.syntax.MethodCall
@@ -86,11 +87,45 @@ class DeterministicFunctionCheck : AbstractBaseCheck() {
 
     private fun report(function: AstNode) {
         if (!reportedFunctions.add(function)) return
-        val location = function.getFirstChildOrNull(PlSqlKeyword.DETERMINISTIC)
+        val deterministic = function.getFirstChildOrNull(PlSqlKeyword.DETERMINISTIC)
+        val location = deterministic
             ?: function.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)
             ?: function.getFirstChildOrNull(PlSqlKeyword.FUNCTION)
             ?: function
-        addIssue(location, getLocalizedMessage())
+        val issue = addIssue(location, getLocalizedMessage())
+        if (deterministic != null && hasSingleDeclaration(function)) {
+            issue.addQuickFix(getQuickFixMessage(), removeKeyword(deterministic))
+        }
+    }
+
+    /**
+     * DETERMINISTIC must be removed from every declaration of the function. Functions that are also declared in a
+     * package or type specification (possibly in another file) or by a forward declaration get no quick fix.
+     */
+    private fun hasSingleDeclaration(function: AstNode): Boolean {
+        if (function.type === PlSqlGrammar.CREATE_FUNCTION) {
+            return true
+        }
+        val declarations = function.parentOrNull
+        if (declarations?.type !== PlSqlGrammar.DECLARE_SECTION ||
+            declarations.parentOrNull?.type === PlSqlGrammar.CREATE_PACKAGE_BODY) {
+            return false
+        }
+        val name = function.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.tokenValue ?: return false
+        return declarations.getChildren(PlSqlGrammar.FUNCTION_DECLARATION).none {
+            it !== function && it.getFirstChildOrNull(PlSqlGrammar.IDENTIFIER_NAME)?.tokenValue.equals(name, ignoreCase = true)
+        }
+    }
+
+    /** Removes the keyword and the whitespace before it (only the keyword if a comment is before it). */
+    private fun removeKeyword(keyword: AstNode): TextEdit {
+        val token = keyword.token
+        val previous = QuickFixUtils.previousToken(keyword)
+        return if (previous != null && !QuickFixUtils.hasComment(token)) {
+            TextEdit(previous.endLine, previous.endColumn, token.endLine, token.endColumn, "")
+        } else {
+            TextEdit.remove(token)
+        }
     }
 
     private fun implementationRoots(function: AstNode): List<AstNode> = listOfNotNull(

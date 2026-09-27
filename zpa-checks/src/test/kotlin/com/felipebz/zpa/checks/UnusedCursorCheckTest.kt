@@ -19,14 +19,26 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class UnusedCursorCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("unused_cursor.sql"), UnusedCursorCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = UnusedCursorCheck()
+        PlSqlCheckVerifier.verify(getPath("unused_cursor.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(2, 12, 15)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Remove the declaration of \"CUR\"", "Remove the declaration of \"WITH_PARAMS\"", "Remove the declaration of \"LAST_ONE\"")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("unused_cursor.sql"), UnusedCursorCheck(), getPath("unused_cursor.fixed.sql"))
     }
 
 }

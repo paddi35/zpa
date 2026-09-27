@@ -24,6 +24,7 @@ import com.felipebz.zpa.typeIs
 import com.felipebz.zpa.api.DmlGrammar
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.api.matchers.MethodMatcher
 
 @Rule(priority = Priority.BLOCKER, tags = [Tags.BUG])
@@ -57,7 +58,12 @@ class VariableInCountCheck : AbstractBaseCheck() {
         val value = arguments[0]
         val symbol = semantic(value).symbol
         if (symbol != null) {
-            addIssue(currentNode, getLocalizedMessage(), value.tokenOriginalValue)
+            val issue = addIssue(currentNode, getLocalizedMessage(), value.tokenOriginalValue)
+            // not for "COUNT(DISTINCT x)" or a named argument
+            val argument = value.parent
+            if (argument.numberOfChildren == 1 && value.tokens.drop(1).none { QuickFixUtils.hasComment(it) }) {
+                issue.addQuickFix(getQuickFixMessage(value.tokenOriginalValue), TextEdit.replace(value, "*"))
+            }
         }
     }
 
