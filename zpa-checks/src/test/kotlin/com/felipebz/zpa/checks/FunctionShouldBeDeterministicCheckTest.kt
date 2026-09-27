@@ -20,13 +20,22 @@
 package com.felipebz.zpa.checks
 
 import com.felipebz.zpa.TestPlSqlVisitorRunner
+import com.felipebz.zpa.api.PlSqlFile
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
 import com.felipebz.zpa.checks.verifier.ProjectPlSqlCheckVerifier
 import com.felipebz.zpa.checks.verifier.ProjectTestSource
+import com.felipebz.zpa.checks.verifier.QuickFixApplier
 import com.felipebz.zpa.metadata.FormsMetadata
+import com.felipebz.zpa.project.FileId
+import com.felipebz.zpa.project.ProjectAnalysisContext
+import com.felipebz.zpa.project.ProjectIndexPreparation
+import com.felipebz.zpa.project.ProjectSource
+import com.felipebz.zpa.squid.AstScanner
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import java.io.File
+import java.nio.charset.StandardCharsets
+import java.nio.file.Path
 
 class FunctionShouldBeDeterministicCheckTest : BaseCheckTest() {
 
@@ -35,6 +44,73 @@ class FunctionShouldBeDeterministicCheckTest : BaseCheckTest() {
         PlSqlCheckVerifier.verify(
             getPath("function_should_be_deterministic.sql"),
             FunctionShouldBeDeterministicCheck()
+        )
+    }
+
+    @Test
+    fun quickFixes() {
+        PlSqlCheckVerifier.verifyQuickFixes(
+            getPath("function_should_be_deterministic.sql"),
+            FunctionShouldBeDeterministicCheck(),
+            getPath("function_should_be_deterministic.fixed.sql")
+        )
+    }
+
+    /**
+     * The file-based [quickFixes] test only covers standalone `CREATE FUNCTION`s. The quick fix's insertion
+     * point (directly before IS/AS) is the same for a package body function, but that candidate requires a
+     * resolved package specification (see [reportsEligiblePublicPackageFunctions]), which needs the
+     * multi-file project setup used here instead of [PlSqlCheckVerifier].
+     */
+    @Test
+    fun quickFixForEligiblePackageBodyFunction() {
+        val specFile = FileId("quickfix-package-spec.sql")
+        val bodyFile = FileId("quickfix-package-body.sql")
+        val specification = """
+            CREATE PACKAGE quickfix_candidate_package AS
+              FUNCTION candidate_value(p_value NUMBER) RETURN NUMBER;
+            END quickfix_candidate_package;
+            /
+        """.trimIndent()
+        val body = """
+            CREATE PACKAGE BODY quickfix_candidate_package AS
+              FUNCTION candidate_value(p_value NUMBER) RETURN NUMBER IS
+              BEGIN
+                RETURN p_value * 2;
+              END candidate_value;
+            END quickfix_candidate_package;
+            /
+        """.trimIndent()
+
+        val preparation = ProjectIndexPreparation().prepare(
+            listOf(
+                ProjectSource(specFile) { specification },
+                ProjectSource(bodyFile) { body }
+            ),
+            concurrent = false
+        )
+        val check = FunctionShouldBeDeterministicCheck()
+        AstScanner(
+            checks = emptyList(),
+            formsMetadata = null,
+            isErrorRecoveryEnabled = true,
+            charset = StandardCharsets.UTF_8,
+            projectAnalysisContext = ProjectAnalysisContext.prepared(preparation)
+        ).scanFile(FixtureFile(bodyFile, body), extraVisitors = listOf(check), fileId = bodyFile)
+
+        val edits = check.issues().mapNotNull { it.quickFixes().firstOrNull() }.flatMap { it.edits() }
+        val fixed = QuickFixApplier.apply(body, edits)
+
+        assertThat(fixed).isEqualTo(
+            """
+            CREATE PACKAGE BODY quickfix_candidate_package AS
+              FUNCTION candidate_value(p_value NUMBER) RETURN NUMBER DETERMINISTIC IS
+              BEGIN
+                RETURN p_value * 2;
+              END candidate_value;
+            END quickfix_candidate_package;
+            /
+            """.trimIndent()
         )
     }
 
@@ -390,5 +466,15 @@ class FunctionShouldBeDeterministicCheckTest : BaseCheckTest() {
             ),
             FunctionShouldBeDeterministicCheck()
         )
+    }
+
+    private class FixtureFile(
+        private val fileId: FileId,
+        private val source: String
+    ) : PlSqlFile {
+        override fun contents() = source
+        override fun fileName() = fileId.value
+        override fun path(): Path = Path.of(fileId.value)
+        override fun type() = PlSqlFile.Type.MAIN
     }
 }

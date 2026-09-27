@@ -32,6 +32,8 @@ import com.felipebz.zpa.api.annotations.Priority
 import com.felipebz.zpa.api.annotations.Rule
 import com.felipebz.zpa.api.annotations.RuleInfo
 import com.felipebz.zpa.api.annotations.ZpaExperimentalApi
+import com.felipebz.zpa.api.checks.PlSqlCheck
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.api.matchers.MethodMatcher
 import com.felipebz.zpa.api.project.PackageProcedureReference
 import com.felipebz.zpa.api.project.PackageProcedureResolution
@@ -64,8 +66,23 @@ class FunctionShouldBeDeterministicCheck : AbstractBaseCheck() {
         }
 
         if (isCandidate(node)) {
-            addIssue(functionNameNode(node), getLocalizedMessage())
+            val issue = addIssue(functionNameNode(node), getLocalizedMessage())
+            addDeterministicQuickFix(issue, node)
         }
+    }
+
+    /**
+     * Inserts DETERMINISTIC right before the function's IS/AS keyword. The grammar only allows
+     * [UNSUPPORTED_FUNCTION_MODIFIERS] or DETERMINISTIC itself between RETURN <datatype> and IS/AS, and
+     * [isCandidate] has already rejected both, so IS/AS directly follows the return type here. No fix is
+     * offered if that keyword cannot be found directly, rather than guessing an insertion point.
+     */
+    private fun addDeterministicQuickFix(issue: PlSqlCheck.PreciseIssue, function: AstNode) {
+        val insertionPoint = function.getFirstChildOrNull(PlSqlKeyword.IS, PlSqlKeyword.AS) ?: return
+        issue.addQuickFix(
+            getQuickFixMessage(),
+            TextEdit.insertBefore(insertionPoint, CheckUtils.matchKeywordCase("DETERMINISTIC", function) + " ")
+        )
     }
 
     private fun isCandidate(function: AstNode): Boolean {
