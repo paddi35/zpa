@@ -166,7 +166,8 @@ jobs:
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.GPG_KEY_PASSWORD }}
 
   dependency-submission:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The Dependency graph is disabled for the fork (needs an explicit opt-in GitHub doesn't expose via API for forks).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'felipebz/zpa'
     runs-on: ubuntu-latest
     permissions:
       contents: write

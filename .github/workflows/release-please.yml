@@ -31,7 +31,11 @@ jobs:
 
   prepare_release:
     name: Prepare and verify stable release
-    if: needs.release_please.outputs.release_created == 'true'
+    # Verification, Maven Central deployment and the GitHub release only run in felipebz/zpa: the fork has none of
+    # the required secrets (Maven, GPG, SonarQube, OCI), and never publishes a release under the same coordinates.
+    # release_please itself still runs in the fork, so version-tracking release PRs (draft, see
+    # release-please-config.json) keep working there.
+    if: needs.release_please.outputs.release_created == 'true' && github.repository == 'felipebz/zpa'
     needs: release_please
     runs-on: ubuntu-latest
     outputs:

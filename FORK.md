@@ -21,7 +21,11 @@ the upstream `main` branch):
 - A UTF-8 byte order mark at the start of a file is ignored by the lexer (previously a parsing error at 1:0);
   columns on the first line are counted without it. The toolkit drops it when opening a file.
 - CI: the SonarQube integration tests and the snapshot publication only run in `felipebz/zpa` (they need
-  upstream secrets).
+  upstream secrets). The same applies to the dependency-graph submission (Dependency graph is disabled for the
+  fork) and to everything after the `release-please` draft PR (build verification, Maven Central deployment, the
+  SonarQube plugin compatibility matrix, and the GitHub release) - the fork has none of the required secrets and
+  never publishes a release under the upstream's Maven/GitHub coordinates. `release-please` itself still runs in
+  the fork and keeps a draft release PR up to date for version tracking.
 
 Artifacts built from this fork use versions ending in `-local-SNAPSHOT` so that they are never
 confused with official ZPA releases.
