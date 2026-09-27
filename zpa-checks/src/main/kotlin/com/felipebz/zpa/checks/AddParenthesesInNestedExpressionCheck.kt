@@ -22,6 +22,7 @@ package com.felipebz.zpa.checks
 import com.felipebz.flr.api.AstNode
 import com.felipebz.zpa.api.PlSqlGrammar
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 
 @Rule(priority = Priority.MAJOR)
 @ConstantRemediation("2min")
@@ -37,6 +38,8 @@ class AddParenthesesInNestedExpressionCheck : AbstractBaseCheck() {
         val andExpressions = node.getChildren(PlSqlGrammar.AND_EXPRESSION)
         for (andExpression in andExpressions) {
             addIssue(andExpression, getLocalizedMessage())
+                .addQuickFix(getQuickFixMessage(),
+                    TextEdit.insertBefore(andExpression, "("), TextEdit.insertAfter(andExpression, ")"))
         }
     }
 

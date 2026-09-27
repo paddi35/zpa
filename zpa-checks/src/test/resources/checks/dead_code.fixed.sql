@@ -1,28 +1,21 @@
 begin
   return;
-  
-  var := 1; -- Noncompliant {{This code will never be executed.}}
 end;
 /
 
 begin
   raise_application_error(-20999, 'Custom error message');
-  
-  var := 1; -- Noncompliant
 end;
 /
 
 begin
   raise;
-
-  var := 1; -- Noncompliant
 end;
 /
 
 begin
   for i in 1..10 loop
       continue;
-      var := 1; -- Noncompliant
   end loop;
 end;
 /
@@ -30,7 +23,6 @@ end;
 begin
   for i in 1..10 loop
       exit;
-      var := 1; -- Noncompliant
   end loop;
 end;
 /
@@ -39,8 +31,6 @@ begin
   begin
     return;
   end;
-  
-  var := 1; -- Noncompliant
 end;
 /
 
@@ -50,17 +40,11 @@ begin
       return;
     end;
   end;
-  
-  var := 1; -- Noncompliant
 end;
 /
 
 begin
   return;
-  a := 1; -- Noncompliant
-  b := 2;
-  -- a comment in the dead code
-  c := 3;
 end;
 /
 
@@ -68,9 +52,6 @@ begin
   if x then
     return;
     -- Noncompliant@+1
-    a := 1;
-    return;
-    b := 2; -- Noncompliant
   end if;
   c := 3;
 end;
@@ -78,15 +59,11 @@ end;
 
 begin
   return;
-  begin -- Noncompliant
-    return;
-    a := 1; -- Noncompliant
-  end;
 end;
 /
 
 begin
-  return; a := 1; -- Noncompliant
+  return;
 end;
 /
 
@@ -95,7 +72,6 @@ begin
 exception
   when others then
     raise;
-    log_error; -- Noncompliant
 end;
 /
 

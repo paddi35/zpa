@@ -1,6 +1,4 @@
 declare
-  cursor cur is -- Noncompliant {{Remove this unused "CUR" cursor.}}
-    select 1 from dual;
     
   cursor "cur2" is
     select 1 from dual;
@@ -9,10 +7,7 @@ begin
 end;
 
 declare
-  cursor with_params(p number) is -- Noncompliant
-    select p from dual;
   cursor used_cursor is select 1 from dual;
-  CURSOR last_one IS SELECT 1 FROM dual; -- Noncompliant
 begin
   open used_cursor;
 end;

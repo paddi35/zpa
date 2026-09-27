@@ -19,14 +19,33 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class ReturnOfBooleanExpressionCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("return_of_boolean_expression.sql"), ReturnOfBooleanExpressionCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = ReturnOfBooleanExpressionCheck()
+        PlSqlCheckVerifier.verify(getPath("return_of_boolean_expression.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(3, 10, 17, 24, 31, 38, 45, 52, 55, 63, 71)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Replace with a single RETURN statement")
+        // "if a = b and c = d then return false; else return true; end if;"
+        assertThat(fixable[2].quickFixes().single().edits()).containsExactly(
+            TextEdit(17, 2, 17, 4, "return not"), TextEdit(17, 5, 17, 5, "("), TextEdit(17, 20, 21, 9, ");"))
+        // "if not a then return false; else return true; end if;"
+        assertThat(fixable[5].quickFixes().single().edits()).containsExactly(
+            TextEdit(38, 2, 38, 4, "return"), TextEdit(38, 5, 38, 9, ""), TextEdit(38, 10, 42, 9, ";"))
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("return_of_boolean_expression.sql"), ReturnOfBooleanExpressionCheck(), getPath("return_of_boolean_expression.fixed.sql"))
     }
 
 }

@@ -20,9 +20,12 @@
 package com.felipebz.zpa.checks
 
 import com.felipebz.flr.api.AstNode
+import com.felipebz.flr.api.AstNodeType
 import com.felipebz.zpa.typeIs
 import com.felipebz.zpa.api.PlSqlGrammar
+import com.felipebz.zpa.api.PlSqlKeyword
 import com.felipebz.zpa.api.annotations.*
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.api.syntax.IfStatement
 import com.felipebz.zpa.api.syntax.SyntaxViews
 
@@ -45,9 +48,56 @@ class ReturnOfBooleanExpressionCheck : AbstractBaseCheck() {
 
             if (firstBoolean != null && secondBoolean != null
                     && firstBoolean.tokenValue != secondBoolean.tokenValue) {
-                addIssue(statement, getLocalizedMessage())
+                val issue = addIssue(statement, getLocalizedMessage())
+                val edits = quickFixEdits(statement.astNode, statement.conditionAstNode,
+                    negate = firstBoolean.tokenValue.equals("FALSE", ignoreCase = true))
+                if (edits != null) {
+                    issue.addQuickFix(getQuickFixMessage(), *edits.toTypedArray())
+                }
             }
         }
+    }
+
+    /**
+     * Turns "IF cond THEN RETURN TRUE; ELSE RETURN FALSE; END IF;" into "RETURN cond;" and, with the literals swapped,
+     * into "RETURN NOT cond;". The condition stays in place: the IF keyword becomes RETURN and everything after the
+     * condition becomes ";". NOT binds tighter than AND and OR, so these conditions must be put in parentheses; other
+     * conditions except simple names, calls and parenthesized expressions get them too for readability ("NOT (x = 1)"
+     * instead of "NOT x = 1"). The NOT of "NOT x" is removed instead. Returns null if a comment would be deleted.
+     */
+    private fun quickFixEdits(ifStatement: AstNode, condition: AstNode, negate: Boolean): List<TextEdit>? {
+        val ifKeyword = ifStatement.getFirstChild(PlSqlKeyword.IF)
+        val removedTokens = ifStatement.tokens.dropWhile { it !== condition.lastToken }.drop(1)
+        if (removedTokens.any { QuickFixUtils.hasComment(it) }) {
+            return null
+        }
+
+        val returnKeyword = CheckUtils.matchKeywordCase("RETURN", ifStatement)
+        val edits = mutableListOf<TextEdit>()
+        var end = ";"
+        if (!negate) {
+            edits.add(TextEdit.replace(ifKeyword.token, returnKeyword))
+        } else if (condition.typeIs(PlSqlGrammar.NOT_EXPRESSION)) {
+            edits.add(TextEdit.replace(ifKeyword.token, returnKeyword))
+            // remove "NOT" and the whitespace after it
+            val not = condition.firstChild.token
+            val operand = condition.lastChild.token
+            edits.add(if (QuickFixUtils.hasComment(operand)) {
+                TextEdit.replace(not, "")
+            } else {
+                TextEdit(not.line, not.column, operand.line, operand.column, "")
+            })
+        } else {
+            val notKeyword = CheckUtils.matchKeywordCase("NOT", ifStatement)
+            edits.add(TextEdit.replace(ifKeyword.token, "$returnKeyword $notKeyword"))
+            if (!condition.typeIs(WITHOUT_PARENTHESES)) {
+                edits.add(TextEdit.insertBefore(condition, "("))
+                end = ");"
+            }
+        }
+        val last = ifStatement.lastToken
+        edits.add(TextEdit(condition.lastToken.endLine, condition.lastToken.endColumn, last.endLine, last.endColumn, end))
+        return edits
     }
 
     private fun hasElsif(ifStatement: IfStatement): Boolean {
@@ -72,6 +122,12 @@ class ReturnOfBooleanExpressionCheck : AbstractBaseCheck() {
 
     private fun getBooleanLiteral(expression: AstNode?): AstNode? {
         return expression?.getFirstChildOrNull(PlSqlGrammar.BOOLEAN_LITERAL)
+    }
+
+    private companion object {
+        /** Conditions that are not put in parentheses after an inserted NOT. */
+        val WITHOUT_PARENTHESES = arrayOf<AstNodeType>(PlSqlGrammar.VARIABLE_NAME, PlSqlGrammar.MEMBER_EXPRESSION,
+            PlSqlGrammar.METHOD_CALL, PlSqlGrammar.BRACKED_EXPRESSION, PlSqlGrammar.LITERAL)
     }
 
 }

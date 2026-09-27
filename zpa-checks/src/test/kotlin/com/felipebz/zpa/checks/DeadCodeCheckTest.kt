@@ -19,14 +19,29 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
+import com.felipebz.zpa.api.checks.TextEdit
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class DeadCodeCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("dead_code.sql"), DeadCodeCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = DeadCodeCheck()
+        PlSqlCheckVerifier.verify(getPath("dead_code.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(4, 11, 18, 25, 33, 43, 54, 60, 71, 81, 89, 98)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Remove the unreachable code")
+        // the code after the first RETURN contains a second RETURN and its dead code
+        assertThat(fixable[8].quickFixes().single().edits()).containsExactly(TextEdit(70, 22, 73, 27, ""))
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("dead_code.sql"), DeadCodeCheck(), getPath("dead_code.fixed.sql"))
     }
 
 }

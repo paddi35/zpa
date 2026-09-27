@@ -19,14 +19,26 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class DuplicatedValueInInCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("duplicated_value_in_in.sql"), DuplicatedValueInInCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = DuplicatedValueInInCheck()
+        PlSqlCheckVerifier.verify(getPath("duplicated_value_in_in.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(2, 8, 11, 11, 13, 13, 15, 18)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Remove the duplicated value \"1\"", "Remove the duplicated value \"x\"", "Remove the duplicated value \"2\"", "Remove the duplicated value \"(\"", "Remove the duplicated value \"'a'\"")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("duplicated_value_in_in.sql"), DuplicatedValueInInCheck(), getPath("duplicated_value_in_in.fixed.sql"))
     }
 
 }

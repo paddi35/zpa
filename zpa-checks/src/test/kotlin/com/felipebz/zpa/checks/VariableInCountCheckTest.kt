@@ -19,14 +19,26 @@
  */
 package com.felipebz.zpa.checks
 
-import org.junit.jupiter.api.Test
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 class VariableInCountCheckTest : BaseCheckTest() {
 
     @Test
     fun test() {
         PlSqlCheckVerifier.verify(getPath("variable_in_count.sql"), VariableInCountCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = VariableInCountCheck()
+        PlSqlCheckVerifier.verify(getPath("variable_in_count.sql"), check)
+        val fixable = check.issues().filter { it.quickFixes().isNotEmpty() }
+        assertThat(fixable.map { it.primaryLocation().startLine() }).containsExactly(5, 9, 10)
+        assertThat(fixable.map { it.quickFixes().single().message() }).containsOnly("Replace \"foo\" with \"*\"", "Replace \"FOO\" with \"*\"")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("variable_in_count.sql"), VariableInCountCheck(), getPath("variable_in_count.fixed.sql"))
     }
 
 }

@@ -11,8 +11,10 @@ the upstream `main` branch):
 - `InequalityUsageCheck` requires `!=` instead of `<>` and is tagged as "convention".
 - Issues can offer quick fixes (`QuickFix` and `TextEdit` in the check API, `PlSqlCheckVerifier.verifyQuickFixes`
   in the testkit). Built-in fixes: `InequalityUsage`, `ComparisonWithNull`, `UselessParenthesis`,
-  `VariableInitializationWithNull`, `DeclareSectionWithoutDeclarations`, `ExplicitInParameter` and
-  `EmptyStringAssignment`. The SonarQube plugin marks those issues as having a quick fix.
+  `VariableInitializationWithNull`, `DeclareSectionWithoutDeclarations`, `ExplicitInParameter`,
+  `EmptyStringAssignment`, `ReturnOfBooleanExpression`, `DeadCode`, `DuplicatedValueInIn`, `VariableInCount`,
+  `AddParenthesesInNestedExpression`, `DuplicateConditionIfElsif`, `DeterministicFunction`, `UnusedVariable` and
+  `UnusedCursor`. The SonarQube plugin marks those issues as having a quick fix.
 - `QuickFixes` in the check API applies quick-fix edits to a source (`apply`) and chooses the quick fixes of
   different issues that can be applied together (`selectNonOverlapping`, `conflict`); the testkit's
   `QuickFixApplier` delegates to it.

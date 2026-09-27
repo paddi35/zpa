@@ -22,6 +22,7 @@ package com.felipebz.zpa.checks
 import com.felipebz.zpa.checks.verifier.PlSqlCheckVerifier
 import com.felipebz.zpa.checks.verifier.ProjectPlSqlCheckVerifier
 import com.felipebz.zpa.checks.verifier.ProjectTestSource
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class DeterministicFunctionCheckTest : BaseCheckTest() {
@@ -29,6 +30,52 @@ class DeterministicFunctionCheckTest : BaseCheckTest() {
     @Test
     fun reportsDirectNonDeterministicBehavior() {
         PlSqlCheckVerifier.verify(getPath("deterministic_function.sql"), DeterministicFunctionCheck())
+    }
+
+    @Test
+    fun quickFixes() {
+        val check = DeterministicFunctionCheck()
+        PlSqlCheckVerifier.verify(getPath("deterministic_function.sql"), check)
+        assertThat(check.issues().filter { it.quickFixes().isEmpty() }.map { it.primaryLocation().startLine() })
+            .containsExactly(291)
+        assertThat(check.issues().flatMap { issue -> issue.quickFixes().map { it.message() } })
+            .hasSize(25).containsOnly("Remove the DETERMINISTIC keyword")
+
+        PlSqlCheckVerifier.verifyQuickFixes(getPath("deterministic_function.sql"), DeterministicFunctionCheck(),
+            getPath("deterministic_function.fixed.sql"))
+    }
+
+    @Test
+    fun noQuickFixForPackageFunctions() {
+        // the keyword would also have to be removed from the package specification
+        val check = DeterministicFunctionCheck()
+        ProjectPlSqlCheckVerifier.verify(
+            listOf(
+                ProjectTestSource(
+                    "deterministic_package_spec.sql",
+                    """
+                    CREATE PACKAGE deterministic_package AS
+                      FUNCTION package_value RETURN DATE DETERMINISTIC;
+                    END deterministic_package;
+                    /
+                    """.trimIndent()
+                ),
+                ProjectTestSource(
+                    "deterministic_package_body.sql",
+                    """
+                    CREATE PACKAGE BODY deterministic_package AS
+                      FUNCTION package_value RETURN DATE DETERMINISTIC IS -- Noncompliant
+                      BEGIN
+                        RETURN SYSDATE;
+                      END package_value;
+                    END deterministic_package;
+                    /
+                    """.trimIndent()
+                )
+            ),
+            check
+        )
+        assertThat(check.issues().single().quickFixes()).isEmpty()
     }
 
     @Test
