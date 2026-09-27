@@ -27,6 +27,13 @@ the upstream `main` branch):
   SonarQube plugin compatibility matrix, and the GitHub release) - the fork has none of the required secrets and
   never publishes a release under the upstream's Maven/GitHub coordinates. `release-please` itself still runs in
   the fork and keeps a draft release PR up to date for version tracking.
+- New check `EmptyOthersHandlerCheck` (`EmptyOthersHandler`): flags a bare `WHEN OTHERS` exception handler whose
+  body is empty or contains only a `NULL` statement, silently swallowing the error.
+- New check `DmlInLoopCheck` (`DmlInLoop`): flags an `INSERT`/`UPDATE`/`DELETE`/`MERGE` statement executed
+  directly inside a `LOOP`/`FOR`/`WHILE` loop body (through `IF`/`CASE`/nested `BEGIN...END` blocks), suggesting a
+  `FORALL` statement instead; a nested loop or `FORALL` statement is its own scope and is reported independently.
+- New check `BulkCollectWithoutLimitCheck` (`BulkCollectWithoutLimit`): flags a `FETCH ... BULK COLLECT INTO`
+  without a `LIMIT` clause, which can load an unbounded number of rows into memory.
 
 Artifacts built from this fork use versions ending in `-local-SNAPSHOT` so that they are never
 confused with official ZPA releases.

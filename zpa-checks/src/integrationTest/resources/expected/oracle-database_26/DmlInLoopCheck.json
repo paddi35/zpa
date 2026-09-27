@@ -1,0 +1,27 @@
+{
+  "lnpls/bulk-sql-and-bulk-binding-1.sql" : [
+    9
+  ],
+  "lnpls/bulk-sql-and-bulk-binding-3.sql" : [
+    30
+  ],
+  "lnpls/bulk-sql-and-bulk-binding-65.sql" : [
+    18
+  ],
+  "lnpls/correlation-names-and-pseudorecords-17.sql" : [
+    8
+  ],
+  "lnpls/dml-triggers-51.sql" : [
+    16
+  ],
+  "lnpls/retrying-transactions-handling-exceptions-0.sql" : [
+    25,
+    27
+  ],
+  "lnpls/transaction-processing-and-control-11.sql" : [
+    18
+  ],
+  "lnpls/transaction-processing-and-control-9.sql" : [
+    21
+  ]
+}

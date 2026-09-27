@@ -1,0 +1,29 @@
+<p>Executing an <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> or
+<code>MERGE</code> statement once per loop iteration is much slower than
+performing the same work in bulk, because each iteration pays the cost of a
+separate context switch between the PL/SQL and SQL engines.</p>
+
+<pre>
+begin
+  for rec in (select id from source_table) loop
+    update target_table set processed = 1 where id = rec.id; -- Noncompliant
+  end loop;
+end;
+</pre>
+
+<p>Replace the loop and the row-by-row DML with a single <code>FORALL</code>
+statement over a collection:</p>
+
+<pre>
+begin
+  forall rec in indices of id_table
+    update target_table set processed = 1 where id = id_table(rec);
+end;
+</pre>
+
+<p>This rule looks through <code>IF</code>/<code>CASE</code> branches and nested
+<code>BEGIN...END</code> blocks to find DML statements executed directly in the
+loop body. A DML statement inside a nested loop or inside a <code>FORALL</code>
+statement is not reported here, since that nested construct is its own scope and
+is checked independently. Dynamic SQL executed via <code>EXECUTE IMMEDIATE</code>
+is not reported either.</p>

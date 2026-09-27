@@ -1,0 +1,21 @@
+{
+  "lnpls/bulk-sql-and-bulk-binding-42.sql" : [
+    22
+  ],
+  "lnpls/bulk-sql-and-bulk-binding-53.sql" : [
+    38,
+    51
+  ],
+  "lnpls/bulk-sql-and-bulk-binding-55.sql" : [
+    22
+  ],
+  "lnpls/cursor-variables-5.sql" : [
+    15
+  ],
+  "lnpls/dbms_sql-package-6.sql" : [
+    39
+  ],
+  "lnpls/sql-data-types-34.sql" : [
+    8
+  ]
+}

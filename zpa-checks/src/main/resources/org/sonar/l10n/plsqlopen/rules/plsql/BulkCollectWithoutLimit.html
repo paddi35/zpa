@@ -1,0 +1,19 @@
+<p>A <code>FETCH ... BULK COLLECT INTO</code> without a <code>LIMIT</code> clause
+loads every remaining row of the cursor into the collection in one step. For a
+cursor that can return a large or unpredictable number of rows, this can
+exhaust the session's memory (PGA).</p>
+
+<pre>
+fetch my_cursor bulk collect into my_table; -- Noncompliant
+</pre>
+
+<p>Add a <code>LIMIT</code> clause and fetch the rows in bounded batches
+instead:</p>
+
+<pre>
+loop
+  fetch my_cursor bulk collect into my_table limit 100;
+  exit when my_table.count = 0;
+  -- process my_table
+end loop;
+</pre>
