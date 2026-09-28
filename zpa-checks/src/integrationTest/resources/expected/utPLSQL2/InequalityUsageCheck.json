@@ -1,20 +1,7 @@
 {
-  "source/ut_assert2.pkb" : [
-    3461
-  ],
-  "source/ut_output.pkb" : [
-    146
-  ],
-  "source/ut_plsql_util.pkb" : [
-    653,
-    701
-  ],
-  "source/ut_receq.pkb" : [
-    123,
-    156
-  ],
-  "source/ut_report.pkb" : [
-    96,
-    98
-  ]
+  "source/ut_assert2.pkb" : [ 3461 ],
+  "source/ut_output.pkb" : [ 146 ],
+  "source/ut_plsql_util.pkb" : [ 653, 701 ],
+  "source/ut_receq.pkb" : [ 123, 156 ],
+  "source/ut_report.pkb" : [ 96, 98 ]
 }

@@ -1,31 +1,10 @@
 {
-  "examples/award_bonus/test_award_bonus.pkg" : [
-    40
-  ],
-  "source/core/output_buffers/ut_output_bulk_buffer.tpb" : [
-    113
-  ],
-  "source/core/output_buffers/ut_output_clob_table_buffer.tpb" : [
-    118
-  ],
-  "source/core/output_buffers/ut_output_table_buffer.tpb" : [
-    148
-  ],
-  "source/core/ut_suite_tag_filter.pkb" : [
-    77,
-    77,
-    79,
-    81,
-    134
-  ],
-  "source/core/ut_utils.pkb" : [
-    358
-  ],
-  "source/expectations/data_values/ut_compound_data_helper.pkb" : [
-    161,
-    281
-  ],
-  "test/ut3_tester_helper/coverage_helper.pkb" : [
-    333
-  ]
+  "examples/award_bonus/test_award_bonus.pkg" : [ 40 ],
+  "source/core/output_buffers/ut_output_bulk_buffer.tpb" : [ 113 ],
+  "source/core/output_buffers/ut_output_clob_table_buffer.tpb" : [ 118 ],
+  "source/core/output_buffers/ut_output_table_buffer.tpb" : [ 148 ],
+  "source/core/ut_suite_tag_filter.pkb" : [ 77, 77, 79, 81, 134 ],
+  "source/core/ut_utils.pkb" : [ 358 ],
+  "source/expectations/data_values/ut_compound_data_helper.pkb" : [ 161, 281 ],
+  "test/ut3_tester_helper/coverage_helper.pkb" : [ 333 ]
 }

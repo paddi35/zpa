@@ -1,16 +1,19 @@
 {
-  "lnpls/correlation-names-and-pseudorecords-8.sql" : [
-    5
-  ],
-  "lnpls/expressions-28.sql" : [
-    5,
-    7,
-    8
-  ],
-  "sqlrf/ALTER-TABLE-16.sql" : [
-    5
-  ],
-  "sqlrf/constraint-14.sql" : [
-    5
-  ]
+  "lnpls/correlation-names-and-pseudorecords-8.sql" : [ 5 ],
+  "lnpls/expressions-28.sql" : [ 5, 7, 8 ],
+  "sqlrf/ALTER-TABLE-16.sql" : [ 5 ],
+  "sqlrf/CREATE-TABLE-64.sql" : [ 19 ],
+  "sqlrf/constraint-14.sql" : [ 5 ],
+  "sqlrf/create-assertion-3.sql" : [ 9 ],
+  "sqlrf/create-assertion-4.sql" : [ 9 ],
+  "sqlrf/create-domain-11.sql" : [ 18 ],
+  "sqlrf/graph-pattern-10.sql" : [ 5 ],
+  "sqlrf/graph-pattern-11.sql" : [ 5 ],
+  "sqlrf/graph-pattern-21.sql" : [ 7 ],
+  "sqlrf/graph-pattern-23.sql" : [ 5 ],
+  "sqlrf/graph-pattern-35.sql" : [ 7 ],
+  "sqlrf/graph-pattern-42.sql" : [ 5 ],
+  "sqlrf/graph-pattern-7.sql" : [ 5 ],
+  "sqlrf/graph-pattern-9.sql" : [ 5 ],
+  "sqlrf/value-expressions-graph_table-17.sql" : [ 5 ]
 }

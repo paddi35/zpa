@@ -96,6 +96,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
     SQL_MACRO_CLAUSE,
     PARALLEL_ENABLE_CLAUSE,
     STREAMING_CLAUSE,
+    ACCESSIBLE_BY_CLAUSE,
     MULTIPLE_VALUE_EXPRESSION,
     MEMBER_EXPRESSION,
     OUTER_JOIN_PLUS_SIGN,
@@ -250,7 +251,9 @@ enum class PlSqlGrammar : GrammarRuleKey {
     CREATE_PACKAGE_BODY,
     VIEW_RESTRICTION_CLAUSE,
     CREATE_MATERIALIZED_VIEW,
+    ALTER_MATERIALIZED_VIEW,
     CREATE_MATERIALIZED_VIEW_LOG,
+    ALTER_MATERIALIZED_VIEW_LOG,
     MATERIALIZED_VIEW_LOG_ATTRIBUTE,
     MATERIALIZED_VIEW_LOG_WITH_CLAUSE,
     MATERIALIZED_VIEW_LOG_PURGE_CLAUSE,
@@ -278,6 +281,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
     CREATE_TRIGGER,
     CREATE_TYPE,
     CREATE_TYPE_BODY,
+    ALTER_TYPE,
 
     // Top-level components
     VALID_INPUT,
@@ -328,6 +332,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
             DdlGrammar.buildOn(b)
             DmlGrammar.buildOn(b)
             RowPatternGrammar.buildOn(b)
+            GraphTableGrammar.buildOn(b)
             DclGrammar.buildOn(b)
             TclGrammar.buildOn(b)
             SqlPlusGrammar.buildOn(b)
@@ -496,7 +501,11 @@ enum class PlSqlGrammar : GrammarRuleKey {
                     ANCHORED_DATATYPE,
                     REF_DATATYPE,
                     JSON_DATATYPE,
-                    CUSTOM_DATATYPE))
+                    CUSTOM_DATATYPE,
+                    // Polymorphic table function parameters and results. Oracle 26 parses a bare TABLE in every
+                    // datatype position: PL/SQL reports PLS-00765 only on compile, and SQL columns, clusters,
+                    // domains and CAST accept it (stored as RAW(16)). TABLE(n) and TABLE OF stay rejected.
+                    TABLE))
 
             b.rule(DATATYPE_NULL_CONSTRAINT).define(
                 b.firstOf(
@@ -784,6 +793,13 @@ enum class PlSqlGrammar : GrammarRuleKey {
                                     LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS),
                             RPARENTHESIS))
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/ACCESSIBLE-BY-clause.html
+            // The unit kind is optional; ACCESSIBLE BY (package) is rejected because PACKAGE is taken as the kind.
+            b.rule(ACCESSIBLE_BY_CLAUSE).define(
+                    ACCESSIBLE, BY, LPARENTHESIS,
+                    accessor(b), b.zeroOrMore(COMMA, accessor(b)),
+                    RPARENTHESIS)
+
             b.rule(BRACKED_EXPRESSION).define(b.firstOf(
                     PRIMARY_EXPRESSION,
                     b.sequence(LPARENTHESIS, EXPRESSION, RPARENTHESIS, b.optional(INTERVAL_QUALIFIER)))).skipIfOneChild()
@@ -939,20 +955,16 @@ enum class PlSqlGrammar : GrammarRuleKey {
                 ANALYTIC_CLAUSE
             )
 
+            val functionsWithoutAnalyticSuffix = AggregateSqlFunctionsGrammar.functionsWithoutAnalyticSuffix
+            val functionWithoutAnalyticSuffix = b.firstOf(
+                functionsWithoutAnalyticSuffix[0],
+                functionsWithoutAnalyticSuffix[1],
+                *functionsWithoutAnalyticSuffix.drop(2).toTypedArray()
+            )
+
             b.rule(POSTFIX_EXPRESSION).define(
                 b.firstOf(
-                    b.sequence(
-                        b.next(AggregateSqlFunctionsGrammar.CLUSTER_ID_EXPRESSION),
-                        OBJECT_REFERENCE
-                    ),
-                    b.sequence(
-                        b.next(AggregateSqlFunctionsGrammar.CLUSTER_DETAILS_EXPRESSION),
-                        OBJECT_REFERENCE
-                    ),
-                    b.sequence(
-                        b.next(AggregateSqlFunctionsGrammar.CLUSTER_SET_EXPRESSION),
-                        OBJECT_REFERENCE
-                    ),
+                    b.sequence(b.next(functionWithoutAnalyticSuffix), OBJECT_REFERENCE),
                     b.sequence(
                         b.next(AggregateSqlFunctionsGrammar.LISTAGG_EXPRESSION),
                         OBJECT_REFERENCE,
@@ -969,11 +981,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
                         b.optional(partitionOnlyAnalyticClause)
                     ),
                     b.sequence(
-                        b.nextNot(b.firstOf(
-                            AggregateSqlFunctionsGrammar.CLUSTER_ID_EXPRESSION,
-                            AggregateSqlFunctionsGrammar.CLUSTER_SET_EXPRESSION,
-                            AggregateSqlFunctionsGrammar.CLUSTER_DETAILS_EXPRESSION
-                        )),
+                        b.nextNot(functionWithoutAnalyticSuffix),
                         OBJECT_REFERENCE,
                         b.optional(b.firstOf(
                             ANALYTIC_CLAUSE,
@@ -1065,6 +1073,8 @@ enum class PlSqlGrammar : GrammarRuleKey {
                     ConditionsGrammar.CONDITION,
                     // IS PRESENT is defined by Oracle only for MODEL expressions.
                     MODEL_PRESENT_CONDITION,
+                    // IS [NOT] SOURCE OF / DESTINATION OF / LABELED exist only inside GRAPH_TABLE.
+                    GraphTableGrammar.GRAPH_ELEMENT_PREDICATE,
                     IN_EXPRESSION)).skipIfOneChild()
 
             b.rule(NOT_EXPRESSION).define(b.optional(NOT), COMPARISON_EXPRESSION).skipIfOneChild()
@@ -1121,8 +1131,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
             b.rule(PROCEDURE_DECLARATION).define(
                     PROCEDURE, IDENTIFIER_NAME,
                     b.optional(PARAMETER_DECLARATIONS),
-                    // Rejected on a standalone procedure, accepted on a packaged one.
-                    b.zeroOrMore(b.firstOf(DETERMINISTIC, PARALLEL_ENABLE_CLAUSE)),
+                    b.zeroOrMore(subprogramProperty(b)),
                     b.optional(b.firstOf(
                             SEMICOLON,
                             b.sequence(b.firstOf(IS, AS),
@@ -1135,8 +1144,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
             b.rule(FUNCTION_DECLARATION).define(
                     FUNCTION, IDENTIFIER_NAME,
                     b.optional(PARAMETER_DECLARATIONS),
-                    RETURN, DATATYPE, b.zeroOrMore(b.firstOf(DETERMINISTIC, PIPELINED, SQL_MACRO_CLAUSE, PARALLEL_ENABLE_CLAUSE, STREAMING_CLAUSE)),
-                    b.optional(RESULT_CACHE, b.optional(RELIES_ON, LPARENTHESIS, b.oneOrMore(OBJECT_REFERENCE, b.optional(COMMA)), RPARENTHESIS)),
+                    RETURN, DATATYPE, b.zeroOrMore(subprogramProperty(b)),
                     b.optional(b.firstOf(
                             SEMICOLON,
                             b.sequence(b.firstOf(IS, AS),
@@ -1405,82 +1413,101 @@ enum class PlSqlGrammar : GrammarRuleKey {
             )
         }
 
+        private fun accessor(b: PlSqlGrammarBuilder) = b.sequence(
+                b.optional(b.firstOf(FUNCTION, PROCEDURE, PACKAGE, TRIGGER, TYPE)), UNIT_NAME)
+
+        // Oracle 26 parses one property list for standalone and packaged subprograms, in any order.
+        // Properties that do not apply to a procedure (PIPELINED, RESULT_CACHE) or to a packaged
+        // subprogram (AUTHID) fail only when the unit is compiled (PLS-00655, PLS-00999, PLS-00157).
+        private fun subprogramProperty(b: PlSqlGrammarBuilder) = b.firstOf(
+                DETERMINISTIC,
+                // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/PIPELINED-clause.html
+                // PIPELINED ... USING ends the declaration, so only a semicolon may follow it.
+                b.sequence(
+                        PIPELINED,
+                        b.optional(b.firstOf(ROW, TABLE), POLYMORPHIC),
+                        b.optional(USING, OBJECT_REFERENCE, b.next(SEMICOLON))),
+                SQL_MACRO_CLAUSE,
+                PARALLEL_ENABLE_CLAUSE,
+                STREAMING_CLAUSE,
+                SHARD_ENABLE,
+                b.sequence(
+                        RESULT_CACHE,
+                        b.optional(RELIES_ON, LPARENTHESIS, b.oneOrMore(OBJECT_REFERENCE, b.optional(COMMA)), RPARENTHESIS)),
+                b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
+                b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
+                ACCESSIBLE_BY_CLAUSE)
+
+        // OR REPLACE and IF NOT EXISTS cannot be combined (ORA-11541).
+        private fun createUnitHeader(b: PlSqlGrammarBuilder, kind: Any): Any {
+            val editionability = b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE))
+            return b.firstOf(
+                    b.sequence(OR, REPLACE, editionability, kind),
+                    b.sequence(editionability, kind, b.optional(IF, NOT, EXISTS)))
+        }
+
         private fun createProgramUnits(b: PlSqlGrammarBuilder) {
             b.rule(EXECUTE_PLSQL_BUFFER).define(ExecuteBufferExpression, b.next(b.firstOf(VALID_INPUT, EOF)))
 
             b.rule(UNIT_NAME).define(b.optional(IDENTIFIER_NAME, DOT), IDENTIFIER_NAME)
 
-            // https://docs.oracle.com/en/database/oracle/oracle-database/18/lnpls/CREATE-PROCEDURE-statement.html
+            val sharingClause = b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/CREATE-PROCEDURE-statement.html
             b.rule(CREATE_PROCEDURE).define(
-                    CREATE, b.optional(OR, REPLACE), b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE)),
-                    PROCEDURE, UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    CREATE, createUnitHeader(b, PROCEDURE),
+                    UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    sharingClause,
                     b.optional(PARAMETER_DECLARATIONS),
-                    b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
-                    b.zeroOrMore(b.firstOf(
-                            b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
-                            b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
-                            b.sequence(ACCESSIBLE, BY, LPARENTHESIS,
-                                    b.firstOf(FUNCTION, PROCEDURE, PACKAGE, TRIGGER, TYPE),
-                                    UNIT_NAME,
-                                    RPARENTHESIS))
-                    ),
+                    b.zeroOrMore(subprogramProperty(b)),
                     b.firstOf(IS, AS),
                     b.firstOf(
                             b.sequence(b.optional(DECLARE_SECTION), STATEMENTS_SECTION),
                             CALL_SPECIFICATION)
             )
 
-            // https://docs.oracle.com/en/database/oracle/oracle-database/18/lnpls/CREATE-FUNCTION-statement.html
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/CREATE-FUNCTION-statement.html
             b.rule(CREATE_FUNCTION).define(
-                    CREATE, b.optional(OR, REPLACE), b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE)),
-                    FUNCTION, UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    CREATE, createUnitHeader(b, FUNCTION),
+                    UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    sharingClause,
                     b.optional(PARAMETER_DECLARATIONS),
                     RETURN, DATATYPE,
-                    b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
-                    b.zeroOrMore(b.firstOf(
-                            DETERMINISTIC,
-                            PIPELINED,
-                            SQL_MACRO_CLAUSE,
-                            PARALLEL_ENABLE_CLAUSE,
-                            STREAMING_CLAUSE,
-                            b.sequence(
-                                    RESULT_CACHE,
-                                    b.optional(RELIES_ON, LPARENTHESIS, b.oneOrMore(OBJECT_REFERENCE, b.optional(COMMA)), RPARENTHESIS)),
-                            b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
-                            b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
-                            b.sequence(ACCESSIBLE, BY, LPARENTHESIS,
-                                    b.firstOf(FUNCTION, PROCEDURE, PACKAGE, TRIGGER, TYPE),
-                                    UNIT_NAME,
-                                    RPARENTHESIS))),
+                    b.zeroOrMore(subprogramProperty(b)),
                     b.firstOf(
                             b.sequence(
                                     b.firstOf(IS, AS),
                                     b.firstOf(
                                             b.sequence(b.optional(DECLARE_SECTION), STATEMENTS_SECTION),
                                             CALL_SPECIFICATION)),
-                            b.sequence(AGGREGATE, USING, OBJECT_REFERENCE, SEMICOLON))
+                            b.sequence(AGGREGATE, USING, OBJECT_REFERENCE, SEMICOLON),
+                            // PIPELINED ... USING; a declaration without a body fails only at compile time (PLS-00378).
+                            SEMICOLON)
             )
 
-            // https://docs.oracle.com/en/database/oracle/oracle-database/18/lnpls/CREATE-PACKAGE-statement.html
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/CREATE-PACKAGE-statement.html
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/RESETTABLE-clause.html
+            // SHARING must come first (PLS-00103); a second RESETTABLE fails at compile time (PLS-00371).
             b.rule(CREATE_PACKAGE).define(
-                    b.optional(CREATE), b.optional(OR, REPLACE), b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE)),
-                    PACKAGE, UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
-                    b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
+                    b.optional(CREATE), createUnitHeader(b, PACKAGE),
+                    UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    sharingClause,
                     b.zeroOrMore(b.firstOf(
                             b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
                             b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
-                            b.sequence(ACCESSIBLE, BY, LPARENTHESIS,
-                                    b.firstOf(FUNCTION, PROCEDURE, PACKAGE, TRIGGER, TYPE),
-                                    UNIT_NAME,
-                                    RPARENTHESIS))),
+                            ACCESSIBLE_BY_CLAUSE,
+                            RESETTABLE)),
                     b.firstOf(IS, AS),
                     b.optional(DECLARE_SECTION),
                     END, b.optional(IDENTIFIER_NAME), SEMICOLON)
 
-            // https://docs.oracle.com/en/database/oracle/oracle-database/18/lnpls/CREATE-PACKAGE-BODY-statement.html
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/CREATE-PACKAGE-BODY-statement.html
+            // A body accepts only SHARING and then a single RESETTABLE (PLS-00103 otherwise).
             b.rule(CREATE_PACKAGE_BODY).define(
-                    b.optional(CREATE), b.optional(OR, REPLACE), b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE)),
-                    PACKAGE, BODY, UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    b.optional(CREATE), createUnitHeader(b, b.sequence(PACKAGE, BODY)),
+                    UNIT_NAME, b.optional(TIMESTAMP, STRING_LITERAL),
+                    sharingClause,
+                    b.optional(RESETTABLE),
                     b.firstOf(IS, AS),
                     b.optional(DECLARE_SECTION),
                     b.firstOf(
@@ -1635,7 +1662,7 @@ enum class PlSqlGrammar : GrammarRuleKey {
 
             b.rule(MATERIALIZED_VIEW_LOG_ATTRIBUTE).define(
                 b.firstOf(
-                    PHISICAL_ATRIBUTES_CLAUSE,
+                    PHYSICAL_ATRIBUTES_CLAUSE,
                     b.sequence(TABLESPACE, IDENTIFIER_NAME),
                     LOGGING_CLAUSE,
                     b.firstOf(CACHE, NOCACHE),
@@ -1694,19 +1721,19 @@ enum class PlSqlGrammar : GrammarRuleKey {
                 PURGE,
                 b.firstOf(
                     b.sequence(IMMEDIATE, b.optional(b.firstOf(SYNCHRONOUS, ASYNCHRONOUS))),
+                    // START WITH may stand alone (Oracle 26 parses `PURGE START WITH SYSDATE`, as documented).
                     b.sequence(
-                        b.optional(START, WITH, EXPRESSION),
-                        b.firstOf(
-                            b.sequence(NEXT, EXPRESSION),
-                            b.sequence(REPEAT, EXPRESSION)
-                        )
-                    )
+                        START, WITH, EXPRESSION,
+                        b.optional(b.firstOf(b.sequence(NEXT, EXPRESSION), b.sequence(REPEAT, EXPRESSION)))),
+                    b.sequence(NEXT, EXPRESSION),
+                    b.sequence(REPEAT, EXPRESSION)
                 )
             )
 
+            val synchronousRefresh = b.sequence(FOR, SYNCHRONOUS, REFRESH, USING, UNIT_NAME)
             b.rule(MATERIALIZED_VIEW_LOG_REFRESH_CLAUSE).define(
                 b.firstOf(
-                    b.sequence(FOR, SYNCHRONOUS, REFRESH, USING, UNIT_NAME),
+                    synchronousRefresh,
                     b.sequence(FOR, FAST, REFRESH)
                 )
             )
@@ -1720,6 +1747,46 @@ enum class PlSqlGrammar : GrammarRuleKey {
                 b.optional(MATERIALIZED_VIEW_LOG_WITH_CLAUSE),
                 b.optional(MATERIALIZED_VIEW_LOG_PURGE_CLAUSE),
                 b.optional(MATERIALIZED_VIEW_LOG_REFRESH_CLAUSE),
+                b.optional(SEMICOLON)
+            )
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-MATERIALIZED-VIEW-LOG.html
+            // Every group is optional (a bare `ALTER MATERIALIZED VIEW LOG ON t` succeeds) and they keep this order
+            // (ORA-03048/ORA-03049 otherwise). The maintenance group repeats in any order; TABLESPACE is rejected
+            // (ORA-12045). The ADD list is the CREATE WITH shape (keyword items, then one optional column list)
+            // without COMMIT SCN (ORA-32418). A list ending in a bare keyword item may only be followed by NEW
+            // VALUES (ORA-02000 at PURGE or FOR). FOR FAST REFRESH is rejected here (ORA-00922).
+            val logItem = b.firstOf(
+                b.sequence(OBJECT, IDENTIFIER), b.sequence(PRIMARY, KEY), ROWID, SEQUENCE)
+            val logColumns = b.sequence(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS)
+            val newValues = b.sequence(b.firstOf(INCLUDING, EXCLUDING), NEW, VALUES)
+            b.rule(ALTER_MATERIALIZED_VIEW_LOG).define(
+                ALTER, MATERIALIZED, VIEW, LOG, b.optional(IF, EXISTS), b.optional(FORCE),
+                ON, UNIT_NAME,
+                b.zeroOrMore(b.firstOf(
+                    PHYSICAL_ATRIBUTES_CLAUSE,
+                    INDEX_PARALLEL_CLAUSE,
+                    LOGGING_CLAUSE,
+                    INDEX_ALLOCATE_EXTENT_CLAUSE,
+                    INDEX_DEALLOCATE_UNUSED_CLAUSE,
+                    INDEX_SHRINK_CLAUSE,
+                    b.sequence(MOVE, SEGMENT_ATTRIBUTES_CLAUSE, b.optional(INDEX_PARALLEL_CLAUSE)),
+                    CACHE,
+                    NOCACHE)),
+                b.optional(b.firstOf(
+                    b.sequence(
+                        ADD,
+                        b.firstOf(
+                            b.sequence(
+                                logItem, b.zeroOrMore(COMMA, logItem),
+                                b.firstOf(
+                                    b.sequence(b.optional(COMMA), logColumns, b.optional(newValues)),
+                                    newValues,
+                                    b.nextNot(b.firstOf(PURGE, FOR)))),
+                            b.sequence(logColumns, b.optional(newValues)))),
+                    newValues)),
+                b.optional(MATERIALIZED_VIEW_LOG_PURGE_CLAUSE),
+                b.optional(synchronousRefresh),
                 b.optional(SEMICOLON)
             )
 
@@ -1738,6 +1805,33 @@ enum class PlSqlGrammar : GrammarRuleKey {
                 b.zeroOrMore(MATERIALIZED_VIEW_ATTRIBUTE),
                 AS,
                 SELECT_EXPRESSION,
+                b.optional(SEMICOLON)
+            )
+
+            b.rule(ALTER_MATERIALIZED_VIEW).define(
+                ALTER, MATERIALIZED, VIEW, b.optional(IF, EXISTS),
+                b.nextNot(LOG, b.firstOf(ON, FORCE)), UNIT_NAME,
+                b.nextNot(b.firstOf(SEMICOLON, DIVISION, EOF)),
+                b.zeroOrMore(b.firstOf(
+                    PHYSICAL_ATRIBUTES_CLAUSE,
+                    TABLE_COMPRESSION,
+                    INDEX_PARALLEL_CLAUSE,
+                    LOGGING_CLAUSE,
+                    INDEX_ALLOCATE_EXTENT_CLAUSE,
+                    INDEX_DEALLOCATE_UNUSED_CLAUSE,
+                    INDEX_SHRINK_CLAUSE,
+                    CACHE,
+                    NOCACHE)),
+                b.optional(USING, INDEX, b.oneOrMore(b.firstOf(b.sequence(INITRANS, INTEGER_LITERAL), INDEX_STORAGE_CLAUSE))),
+                b.optional(MATERIALIZED_VIEW_REFRESH),
+                b.optional(MATERIALIZED_VIEW_EVALUATION_EDITION_CLAUSE),
+                b.optional(b.firstOf(ENABLE, DISABLE), ON, QUERY, COMPUTATION),
+                b.optional(b.firstOf(
+                    MATERIALIZED_VIEW_QUERY_REWRITE_CLAUSE,
+                    b.sequence(b.firstOf(ENABLE, DISABLE), CONCURRENT, REFRESH),
+                    COMPILE,
+                    b.sequence(CONSIDER, FRESH))),
+                b.optional(ANNOTATIONS_CLAUSE),
                 b.optional(SEMICOLON)
             )
 
@@ -1906,25 +2000,71 @@ enum class PlSqlGrammar : GrammarRuleKey {
                 b.zeroOrMore(b.optional(NOT), b.firstOf(FINAL, INSTANTIABLE))
             )
 
+            val typeProperties = b.zeroOrMore(b.firstOf(
+                    b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
+                    b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
+                    ACCESSIBLE_BY_CLAUSE))
+            val typeDefinition = b.firstOf(
+                    OBJECT_TYPE_DEFINITION,
+                    b.sequence(
+                            b.firstOf(IS, AS),
+                            b.firstOf(
+                                    VARRAY_TYPE_DEFINITION,
+                                    NESTED_TABLE_DEFINITION)))
+
             b.rule(CREATE_TYPE).define(
                     CREATE, b.optional(OR, REPLACE), b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE)),
                     TYPE, UNIT_NAME,
                     b.optional(FORCE),
                     b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
-                    b.zeroOrMore(b.firstOf(
-                            b.sequence(AUTHID, b.firstOf(CURRENT_USER, DEFINER)),
-                            b.sequence(DEFAULT, COLLATION, USING_NLS_COMP),
-                            b.sequence(ACCESSIBLE, BY, LPARENTHESIS,
-                                    b.firstOf(FUNCTION, PROCEDURE, PACKAGE, TRIGGER, TYPE),
-                                    UNIT_NAME,
-                                    RPARENTHESIS))),
-                    b.optional(b.firstOf(
-                            OBJECT_TYPE_DEFINITION,
+                    typeProperties,
+                    b.optional(typeDefinition),
+                    b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/ALTER-TYPE-statement.html
+            // Oracle 26 parses the evolution clauses as a type specification, so object existence,
+            // type kind (MODIFY LIMIT on an object type), duplicate or conflicting options and
+            // invalid evolutions fail only afterwards (ORA-04043, ORA-22324, ORA-02342, ORA-22344).
+            val typeFinality = b.oneOrMore(b.optional(NOT), b.firstOf(INSTANTIABLE, FINAL))
+            // ADD/MODIFY need a datatype and DROP rejects one (PLS-00103), despite the diagram.
+            val attributeDefinition = b.firstOf(
+                    b.sequence(b.firstOf(ADD, MODIFY), ATTRIBUTE, b.firstOf(
+                            b.sequence(LPARENTHESIS, TYPE_ATTRIBUTE, b.zeroOrMore(COMMA, TYPE_ATTRIBUTE), RPARENTHESIS),
+                            TYPE_ATTRIBUTE)),
+                    b.sequence(DROP, ATTRIBUTE, b.firstOf(
+                            b.sequence(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS),
+                            IDENTIFIER_NAME)))
+            // Constructors are accepted too, and pragmas may follow a method as in CREATE TYPE.
+            val methodSpec = b.sequence(b.firstOf(ADD, DROP), TYPE_ELEMENT_SPEC)
+            val collectionClause = b.sequence(MODIFY, b.firstOf(
+                    b.sequence(LIMIT, EXPRESSION),
+                    b.sequence(ELEMENT, TYPE, DATATYPE, b.optional(DATATYPE_NULL_CONSTRAINT))))
+            val dependentHandling = b.firstOf(
+                    INVALIDATE,
+                    b.sequence(
+                            CASCADE,
+                            b.optional(b.firstOf(
+                                    b.sequence(b.optional(NOT), INCLUDING, TABLE, DATA),
+                                    b.sequence(CONVERT, TO, SUBSTITUTABLE))),
+                            b.optional(b.optional(FORCE), EXCEPTIONS_CLAUSE)))
+
+            // Attribute and method changes are comma-separated lists that cannot be mixed (PLS-00103).
+            b.rule(ALTER_TYPE).define(
+                    ALTER, TYPE, b.optional(IF, EXISTS), UNIT_NAME,
+                    b.firstOf(
+                            EDITIONABLE,
+                            NONEDITIONABLE,
+                            TYPE_COMPILE_CLAUSE,
+                            b.sequence(REPLACE, b.optional(FORCE), typeProperties, typeDefinition),
+                            RESET,
                             b.sequence(
-                                    b.firstOf(IS, AS),
                                     b.firstOf(
-                                            VARRAY_TYPE_DEFINITION,
-                                            NESTED_TABLE_DEFINITION)))),
+                                            typeFinality,
+                                            b.sequence(attributeDefinition, b.zeroOrMore(COMMA, attributeDefinition)),
+                                            b.sequence(methodSpec, b.zeroOrMore(COMMA, b.firstOf(
+                                                    methodSpec, DEPRECATE_PRAGMA, SUPPRESSES_WARNING_6009_PRAGMA))),
+                                            collectionClause),
+                                    b.optional(dependentHandling))),
                     b.optional(SEMICOLON))
 
             b.rule(CREATE_TYPE_BODY).define(

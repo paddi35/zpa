@@ -19,7 +19,6 @@
  */
 package com.felipebz.zpa.it
 
-import com.fasterxml.jackson.core.util.DefaultIndenter
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -45,9 +44,7 @@ import kotlin.io.path.exists
 class PlSqlRulingTest {
 
     private val mapper = ObjectMapper()
-    private val prettyPrinter = DefaultPrettyPrinter().apply {
-        indentArraysWith(DefaultIndenter.SYSTEM_LINEFEED_INSTANCE)
-    }
+    private val prettyPrinter = DefaultPrettyPrinter()
 
     @Test
     fun alexandria_plsql_utils() {

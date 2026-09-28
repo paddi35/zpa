@@ -6,11 +6,32 @@
       "reason": "NOCOPY is not valid for an IN-only parameter; Oracle accepts NOCOPY only with OUT and IN OUT parameters."
     }
   },
+  "examples/alter_analytic_view.sql": {
+    "3": {
+      "classification": "INVALID_SOURCE",
+      "oracleError": "ORA-02000",
+      "reason": "The documented ADD CACHE example omits the cache type; Oracle 26 requires MATERIALIZED after the LEVELS clause and reports a missing MATERIALIZED keyword."
+    }
+  },
+  "examples/alter_synonym01.sql": {
+    "4": {
+      "classification": "INVALID_SOURCE",
+      "oracleError": "ORA-00922",
+      "reason": "A public synonym cannot be schema-qualified; Oracle rejects the dot after PUBLIC SYNONYM sch."
+    }
+  },
   "examples/bindvar04.sql": {
     "6": {
       "classification": "INVALID_SOURCE",
       "oracleError": "ORA-00923",
       "reason": "Oracle requires a quoted value after INTERVAL and integer values for DAY/SECOND precision; bind variables are not valid in these positions."
+    }
+  },
+  "examples/create_function01.sql": {
+    "1": {
+      "classification": "INVALID_SOURCE",
+      "oracleError": "PLS-00103",
+      "reason": "The sharing clause must precede the parameter list and RETURN; Oracle rejects SHARING after the return type."
     }
   },
   "examples/create_view.sql": {

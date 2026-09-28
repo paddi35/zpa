@@ -20,14 +20,29 @@
 package com.felipebz.zpa.api
 
 import com.felipebz.flr.api.GenericTokenType.EOF
+import com.felipebz.flr.grammar.ContextKey
 import com.felipebz.flr.grammar.GrammarRuleKey
 import com.felipebz.zpa.api.PlSqlGrammar.*
 import com.felipebz.zpa.api.PlSqlKeyword.*
 import com.felipebz.zpa.api.PlSqlPunctuator.*
 import com.felipebz.zpa.api.PlSqlTokenType.INTEGER_LITERAL
+import com.felipebz.zpa.api.PlSqlTokenType.NUMBER_LITERAL
 import com.felipebz.zpa.grammar.JavaSourceTextExpression
 import com.felipebz.zpa.grammar.JavaResolverMatchStringExpression
 import com.felipebz.zpa.sslr.PlSqlGrammarBuilder
+
+/**
+ * Set while parsing CREATE TABLE and CREATE DOMAIN. Oracle 26 rejects DROP, REPLACE and ADD OR REPLACE
+ * annotation directives in both at parse time (ORA-11555/ORA-11556 at the directive), while
+ * ALTER TABLE, including ALTER TABLE ADD column, accepts them.
+ */
+internal val CREATE_ANNOTATIONS_CONTEXT: ContextKey<Boolean> = ContextKey()
+internal val OUTLINE_CREATE_TABLE_CONTEXT: ContextKey<Boolean> = ContextKey()
+/**
+ * Enables view-specific restrictions in shared constraint productions.
+ * Callers remain responsible for restricting unsupported constraint kinds.
+ */
+internal val VIEW_CONSTRAINT_CONTEXT: ContextKey<Boolean> = ContextKey()
 
 enum class DdlGrammar : GrammarRuleKey {
 
@@ -36,6 +51,7 @@ enum class DdlGrammar : GrammarRuleKey {
     ONE_OR_MORE_IDENTIFIERS,
     REFERENCES_CLAUSE,
     INLINE_CONSTRAINT,
+    INLINE_REF_CONSTRAINT,
     OUT_OF_LINE_CONSTRAINT,
     OUT_OF_LINE_REF_CONSTRAINT,
     USING_INDEX_CLAUSE,
@@ -44,6 +60,10 @@ enum class DdlGrammar : GrammarRuleKey {
     TABLE_COLUMN_DEFINITION,
     TABLE_RELATIONAL_PROPERTIES,
     OBJECT_TABLE_CLAUSE,
+    XMLTYPE_TABLE,
+    XMLTYPE_COLUMN_PROPERTIES,
+    XMLTYPE_STORAGE,
+    XMLSCHEMA_SPEC,
     OBJECT_TABLE_SUBSTITUTION,
     OBJECT_TABLE_PROPERTIES,
     OBJECT_IDENTIFIER_CLAUSE,
@@ -57,6 +77,8 @@ enum class DdlGrammar : GrammarRuleKey {
     SUBPARTITION_EXTENDED_NAME,
     RENAME_PARTITION_SUBPART,
     EXCHANGE_PARTITION_SUBPART,
+    MOVE_TABLE_PARTITION,
+    TRUNCATE_PARTITION_SUBPART,
     ADD_RANGE_TABLE_PARTITIONS,
     SPLIT_TABLE_PARTITION,
     MERGE_TABLE_PARTITIONS,
@@ -65,12 +87,104 @@ enum class DdlGrammar : GrammarRuleKey {
     UPDATE_INDEX_CLAUSES,
     DROP_CONSTRAINT_CLAUSE,
     ALTER_SYSTEM,
+    ALTER_LOCKDOWN_PROFILE,
+    LOCKDOWN_FEATURES,
+    LOCKDOWN_OPTIONS,
+    LOCKDOWN_STATEMENTS,
+    LOCKDOWN_OPTION_VALUES,
+    CREATE_DOMAIN,
+    DOMAIN_CONSTRAINT,
+    DOMAIN_COLUMN,
+    DOMAIN_ENUM,
+    CREATE_FLEXIBLE_DOMAIN,
+    CREATE_MATERIALIZED_ZONEMAP,
+    ALTER_MATERIALIZED_ZONEMAP,
+    ZONEMAP_REFRESH_CLAUSE,
+    CREATE_ATTRIBUTE_DIMENSION,
+    ATTRIBUTE_DIMENSION_LEVEL_CLAUSE,
+    CREATE_HIERARCHY,
+    AV_CLASSIFICATION_CLAUSE,
+    CREATE_DIMENSION,
+    DIMENSION_LEVEL_CLAUSE,
+    DIMENSION_HIERARCHY_CLAUSE,
+    DIMENSION_ATTRIBUTE_CLAUSE,
+    ALTER_DIMENSION,
+    ALTER_ATTRIBUTE_DIMENSION,
+    ALTER_HIERARCHY,
+    ALTER_ANALYTIC_VIEW,
+    CREATE_DATABASE_LINK,
+    ALTER_DATABASE_LINK,
+    DATABASE_LINK_NAME,
+    CREATE_OUTLINE,
+    ALTER_OUTLINE,
+    CREATE_INMEMORY_JOIN_GROUP,
+    ALTER_INMEMORY_JOIN_GROUP,
+    ALTER_VIEW,
+    CREATE_FLASHBACK_ARCHIVE,
+    ALTER_FLASHBACK_ARCHIVE,
+    PURGE_STATEMENT,
+    CREATE_PFILE,
+    CREATE_RESTORE_POINT,
+    FLASHBACK_TABLE,
+    CREATE_EDITION,
+    CREATE_OPERATOR,
+    ALTER_OPERATOR,
+    CREATE_INDEXTYPE,
+    ALTER_INDEXTYPE,
+    CREATE_SPFILE,
+    ALTER_DOMAIN,
+    CREATE_AUDIT_POLICY,
+    ALTER_AUDIT_POLICY,
+    AUDIT_PRIVILEGE_CLAUSE,
+    AUDIT_ACTION_CLAUSE,
+    AUDIT_ROLE_CLAUSE,
+    CREATE_PROPERTY_GRAPH,
+    PROPERTY_GRAPH_VERTEX_TABLE,
+    PROPERTY_GRAPH_EDGE_TABLE,
+    PROPERTY_GRAPH_PROPERTIES,
+    CREATE_USER,
+    USER_AUTHENTICATION_CLAUSE,
+    ALTER_USER,
+    CREATE_PROFILE,
+    ALTER_PROFILE,
+    PROFILE_LIMIT_CLAUSE,
+    CREATE_TABLESPACE,
+    ALTER_TABLESPACE,
+    CREATE_ROLE,
+    ALTER_ROLE,
+    ROLE_IDENTIFICATION_CLAUSE,
+    CREATE_ROLLBACK_SEGMENT,
+    ALTER_ROLLBACK_SEGMENT,
+    CREATE_CLUSTER,
+    ALTER_CLUSTER,
+    TABLE_CLUSTER_CLAUSE,
+    ANALYZE_STATEMENT,
+    AUDIT_STATEMENT,
+    NOAUDIT_STATEMENT,
+    AUDIT_POLICY_CLAUSE,
+    AUDIT_CONTEXT_CLAUSE,
+    STATISTICS_ASSOCIATION_TARGET,
+    ASSOCIATE_STATISTICS,
+    DISASSOCIATE_STATISTICS,
+    RENAME_STATEMENT,
+    ALTER_RESOURCE_COST,
+    CREATE_ASSERTION,
+    ASSERTION_CONDITION,
+    ASSERTION_UNIVERSAL_EXPRESSION,
+    DATAFILE_TEMPFILE_SPEC,
+    AUTOEXTEND_CLAUSE,
+    EXTENT_MANAGEMENT_CLAUSE,
+    TABLESPACE_ENCRYPTION_CLAUSE,
+    DEFAULT_TABLESPACE_PARAMS,
+    USER_PROXY_CLAUSE,
     CREATE_CONTEXT,
     CALL_COMMAND,
     CREATE_TABLE,
     INDEX_ORGANIZED_TABLE_CLAUSE,
     INDEX_ORGANIZED_TABLE_OVERFLOW_CLAUSE,
     CREATE_INDEX,
+    CREATE_SEARCH_INDEX,
+    CREATE_VECTOR_INDEX,
     CREATE_INDEX_FOR_CONSTRAINT,
     CREATE_INDEX_SCHEMA_OBJECT_NAME,
     CREATE_INDEX_ON_CLAUSE,
@@ -134,9 +248,11 @@ enum class DdlGrammar : GrammarRuleKey {
     ALTER_TRIGGER,
     ALTER_PACKAGE,
     PACKAGE_COMPILE_CLAUSE,
+    TYPE_COMPILE_CLAUSE,
     DROP_COMMAND,
     CREATE_SYNONYM,
     CREATE_JAVA,
+    ALTER_JAVA,
     CREATE_JAVA_OBJECT,
     CREATE_JAVA_SOURCE,
     CREATE_JAVA_CLASS,
@@ -152,12 +268,17 @@ enum class DdlGrammar : GrammarRuleKey {
     JAVA_USING_CLAUSE,
     JAVA_SOURCE_TEXT,
     CREATE_SEQUENCE,
+    ALTER_SEQUENCE,
+    ALTER_SYNONYM,
+    TRUNCATE_CLUSTER,
+    CREATE_LIBRARY,
+    ALTER_LIBRARY,
     PARTITION_BY_RANGE,
     PARTITION_BY_HASH,
     RANGE_VALUES_CLAUSE,
     TABLE_PARTITION_DESCRIPTION,
     SEGMENT_ATTRIBUTES_CLAUSE,
-    PHISICAL_ATRIBUTES_CLAUSE,
+    PHYSICAL_ATRIBUTES_CLAUSE,
     TABLE_COMPRESSION,
     KEY_COMPRESSION,
     LOB_STORAGE_CLAUSE,
@@ -169,9 +290,7 @@ enum class DdlGrammar : GrammarRuleKey {
     PARTITIONING_STORAGE_CLAUSE,
     SUBSTITUTABLE_COLUMN_CLAUSE,
     LOB_PARAMETERS,
-    STORAGE_CLAUSE,
     LOGGING_CLAUSE,
-    SIZE_CLAUSE,
     INDIVIDUAL_HASH_PARTITIONS,
     HASH_PARTITIONS_BY_QUANTITY,
     PARTITION_BY_LIST,
@@ -237,7 +356,7 @@ enum class DdlGrammar : GrammarRuleKey {
 
             fun objectTableProperty() = b.firstOf(
                 OUT_OF_LINE_CONSTRAINT,
-                b.sequence(IDENTIFIER_NAME, b.zeroOrMore(INLINE_CONSTRAINT))
+                b.sequence(IDENTIFIER_NAME, b.zeroOrMore(b.firstOf(INLINE_REF_CONSTRAINT, INLINE_CONSTRAINT)))
             )
 
             fun nestedTableStorageProperty() = b.firstOf(
@@ -251,7 +370,8 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.zeroOrMore(
                     b.firstOf(
                         LOB_STORAGE_CLAUSE,
-                        VARRAY_COL_PROPERTIES))
+                        VARRAY_COL_PROPERTIES,
+                        XMLTYPE_COLUMN_PROPERTIES))
             )
 
             fun encryptionPassword() = b.firstOf(
@@ -313,10 +433,31 @@ enum class DdlGrammar : GrammarRuleKey {
 
             b.rule(ONE_OR_MORE_IDENTIFIERS).define(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS).skip()
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/constraint.html
+            // Table constraint column lists name columns or object attributes. The diagram shows plain columns,
+            // but Oracle 26 parses dotted attribute paths of any depth in UNIQUE, PRIMARY KEY, FOREIGN KEY and
+            // REFERENCES lists, resolving the components later (ORA-22809/ORA-00904/ORA-02337); empty or trailing
+            // components are rejected (ORA-03050/ORA-00936). Each column or path may also carry a database link,
+            // which Oracle 26 accepts and ignores when it records the constraint column. The link follows the
+            // dblink syntax `database[.domain…][@connection_qualifier]`, and the database may be omitted to give
+            // `column@@qualifier`. The qualifier is one undotted name, and a further `@` fails (ORA-02083); an
+            // empty link or qualifier fails too (ORA-01729/ORA-02084). View constraints keep plain column names.
+            val constraintColumn = b.sequence(
+                IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME),
+                b.optional(REMOTE, b.firstOf(
+                    b.sequence(IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME), b.optional(REMOTE, IDENTIFIER_NAME)),
+                    b.sequence(REMOTE, IDENTIFIER_NAME))))
+            val constraintColumns = b.firstOf(
+                b.sequence(b.requireContext(VIEW_CONSTRAINT_CONTEXT, true), ONE_OR_MORE_IDENTIFIERS),
+                b.sequence(
+                    b.nextNot(b.requireContext(VIEW_CONSTRAINT_CONTEXT, true)),
+                    LPARENTHESIS, constraintColumn, b.zeroOrMore(COMMA, constraintColumn), RPARENTHESIS))
+
             b.rule(REFERENCES_CLAUSE).define(
                     REFERENCES, MEMBER_EXPRESSION,
-                    b.optional(ONE_OR_MORE_IDENTIFIERS),
-                    b.optional(ON, DELETE, b.firstOf(CASCADE, b.sequence(SET, NULL)))
+                    b.optional(constraintColumns),
+                    b.optional(b.nextNot(b.requireContext(VIEW_CONSTRAINT_CONTEXT, true)),
+                        ON, DELETE, b.firstOf(CASCADE, b.sequence(SET, NULL)))
             )
 
             b.rule(INLINE_CONSTRAINT).define(
@@ -380,6 +521,17 @@ enum class DdlGrammar : GrammarRuleKey {
 
             b.rule(EXCEPTIONS_CLAUSE).define(EXCEPTIONS, INTO, UNIT_NAME)
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/constraint.html
+            // inline_ref_constraint without its references_clause branch, which INLINE_CONSTRAINT already
+            // covers. Oracle 26 parses these on any column and mixed with other inline constraints in any
+            // order or repetition; non-REF columns, duplicate SCOPE and SCOPE with REFERENCES fail later
+            // (ORA-22893/ORA-22888/ORA-22896). A constraint name (ORA-22890) or constraint state (ORA-03076)
+            // is rejected. The scope table also parses a database link, rejected later (ORA-25124).
+            b.rule(INLINE_REF_CONSTRAINT).define(
+                b.firstOf(
+                    b.sequence(SCOPE, IS, DmlGrammar.TABLE_REFERENCE),
+                    b.sequence(WITH, ROWID)))
+
             b.rule(TABLE_COLUMN_DEFINITION).define(
                     IDENTIFIER_NAME, DATATYPE,
                     b.optional(SORT),
@@ -388,20 +540,29 @@ enum class DdlGrammar : GrammarRuleKey {
                             b.optional(FOR, INSERT,
                                 b.firstOf(ONLY, b.sequence(AND, UPDATE))))), EXPRESSION),
                     b.optional(columnEncryptionClause()),
-                    b.zeroOrMore(INLINE_CONSTRAINT))
+                    b.zeroOrMore(b.firstOf(INLINE_REF_CONSTRAINT, INLINE_CONSTRAINT)),
+                    // Oracle 26 accepts annotations only after DEFAULT, encryption and inline constraints.
+                    b.optional(ANNOTATIONS_CLAUSE))
+
+            // View constraints in this context only permit
+            // [RELY | NORELY] DISABLE [NOVALIDATE] after the column list.
+            val viewConstraintState = b.sequence(b.optional(b.firstOf(RELY, NORELY)), DISABLE, b.optional(NOVALIDATE))
+            fun outOfLineConstraintState(normalState: Any) = b.firstOf(
+                b.sequence(b.requireContext(VIEW_CONSTRAINT_CONTEXT, true), viewConstraintState),
+                b.sequence(b.nextNot(b.requireContext(VIEW_CONSTRAINT_CONTEXT, true)), normalState))
 
             b.rule(OUT_OF_LINE_CONSTRAINT).define(
                 b.optional(b.firstOf(CONSTRAINT, CONSTRAINTS), IDENTIFIER_NAME),
                 b.firstOf(
                     b.sequence(
                         b.firstOf(
-                            b.sequence(UNIQUE, ONE_OR_MORE_IDENTIFIERS),
-                            b.sequence(PRIMARY, KEY, ONE_OR_MORE_IDENTIFIERS),
-                        ), b.optional(CONSTRAINT_STATE)
+                            b.sequence(UNIQUE, constraintColumns),
+                            b.sequence(PRIMARY, KEY, constraintColumns),
+                        ), outOfLineConstraintState(b.optional(CONSTRAINT_STATE))
                     ),
                     b.sequence(
-                        FOREIGN, KEY, ONE_OR_MORE_IDENTIFIERS, REFERENCES_CLAUSE,
-                        b.optional(CONSTRAINT_STATE_WITHOUT_USING_INDEX)
+                        FOREIGN, KEY, constraintColumns, REFERENCES_CLAUSE,
+                        outOfLineConstraintState(b.optional(CONSTRAINT_STATE_WITHOUT_USING_INDEX))
                     ),
                     b.sequence(
                         CHECK, LPARENTHESIS, EXPRESSION, RPARENTHESIS,
@@ -493,21 +654,30 @@ enum class DdlGrammar : GrammarRuleKey {
                 )
             )
 
-            b.rule(PHISICAL_ATRIBUTES_CLAUSE).define(
+            // MAXTRANS is deprecated, but Oracle 26 still parses it for tables and indexes.
+            b.rule(PHYSICAL_ATRIBUTES_CLAUSE).define(
                     b.oneOrMore(b.firstOf(
                             b.sequence(PCTFREE, INTEGER_LITERAL),
                             b.sequence(PCTUSED, INTEGER_LITERAL),
                             b.sequence(INITRANS, INTEGER_LITERAL),
-                            STORAGE_CLAUSE)))
+                            b.sequence(MAXTRANS, INTEGER_LITERAL),
+                            INDEX_STORAGE_CLAUSE)))
 
             b.rule(SEGMENT_ATTRIBUTES_CLAUSE).define(
                     b.oneOrMore(b.firstOf(
-                            PHISICAL_ATRIBUTES_CLAUSE,
+                            PHYSICAL_ATRIBUTES_CLAUSE,
                             b.sequence(TABLESPACE, IDENTIFIER_NAME),
                             LOGGING_CLAUSE)))
 
             b.rule(TABLE_COMPRESSION).define(
-                    b.firstOf(COMPRESS, NOCOMPRESS))
+                    b.firstOf(
+                            COMPRESS,
+                            NOCOMPRESS,
+                            b.sequence(ROW, STORE, COMPRESS, b.optional(b.firstOf(BASIC, ADVANCED))),
+                            b.sequence(COLUMN, STORE, COMPRESS,
+                                    b.optional(FOR, b.optional(MEMSPEED), b.firstOf(QUERY, ARCHIVE),
+                                            b.optional(b.firstOf(LOW, HIGH))),
+                                    b.optional(b.optional(NO), ROW, LEVEL, LOCKING))))
 
             b.rule(KEY_COMPRESSION).define(
                     b.firstOf(
@@ -536,31 +706,73 @@ enum class DdlGrammar : GrammarRuleKey {
                 )
             )
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-TABLE.html (LOB_storage_clause)
+            // The diagram repeats {SECUREFILE | BASICFILE | LOB_segname | (params)} freely; Oracle 26 instead
+            // parses them once each in that order (ORA-00922 otherwise), rejects SECUREFILE with BASICFILE
+            // (ORA-43852) or a repeated type (ORA-22850) and a segment name for several columns (ORA-22855),
+            // all during parsing. After a storage type, the segment name is optional and Oracle reads the
+            // table properties below as the next clause instead; other words (PCTFREE, COMPRESS) become the
+            // segment name and fail on the following token.
+            val lobStorageType = b.firstOf(SECUREFILE, BASICFILE)
+            val lobParameters = b.sequence(LPARENTHESIS, LOB_PARAMETERS, RPARENTHESIS)
+            val optionalLobSegname = b.optional(
+                b.nextNot(b.firstOf(
+                    TABLESPACE, LOGGING, NOLOGGING, PCTUSED, INITRANS, MAXTRANS, STORAGE,
+                    PARALLEL, NOPARALLEL, ENABLE, DISABLE, CACHE, NOCACHE,
+                    PARTITION, LOB, NESTED, VARRAY, ANNOTATIONS, SECUREFILE, BASICFILE)),
+                IDENTIFIER_NAME)
             b.rule(LOB_STORAGE_CLAUSE).define(
-                    b.sequence(LOB,
-                            b.firstOf(
-                                    b.sequence(
-                                            LPARENTHESIS,
-                                            b.oneOrMore(
-                                                    IDENTIFIER_NAME,
-                                                    b.optional(COMMA)),
-                                            RPARENTHESIS,
-                                            STORE,
-                                            AS,
-                                            LPARENTHESIS,
-                                            LOB_PARAMETERS,
-                                            RPARENTHESIS),
-                                    b.sequence(
-                                            LPARENTHESIS,
+                    LOB,
+                    b.firstOf(
+                            b.sequence(
+                                    LPARENTHESIS, IDENTIFIER_NAME, RPARENTHESIS, STORE, AS,
+                                    b.firstOf(
+                                            b.sequence(lobStorageType, optionalLobSegname, b.optional(lobParameters)),
+                                            b.sequence(IDENTIFIER_NAME, b.optional(lobParameters)),
+                                            lobParameters)),
+                            b.sequence(
+                                    LPARENTHESIS,
+                                    b.oneOrMore(
                                             IDENTIFIER_NAME,
-                                            RPARENTHESIS,
-                                            STORE,
-                                            AS,
-                                            IDENTIFIER_NAME,
-                                            b.optional(b.sequence(
-                                                    LPARENTHESIS,
-                                                    LOB_PARAMETERS,
-                                                    RPARENTHESIS))))))
+                                            b.optional(COMMA)),
+                                    RPARENTHESIS, STORE, AS,
+                                    b.firstOf(
+                                            b.sequence(lobStorageType, b.optional(lobParameters)),
+                                            lobParameters))))
+
+            // Oracle 26 rejects `STORE ALL VARRAYS` after `OF XMLTYPE XMLTYPE` (ORA-00905) and a string-literal
+            // schema URL (ORA-19002), so neither is modeled. Any other word after the storage type is read as the
+            // LOB segment name, even TABLESPACE, PCTFREE, LOB or PARTITION (errors land on the following token).
+            b.rule(XMLTYPE_STORAGE).define(
+                STORE, AS,
+                b.firstOf(
+                    b.sequence(OBJECT, RELATIONAL),
+                    b.sequence(
+                        b.optional(b.firstOf(SECUREFILE, BASICFILE)),
+                        b.firstOf(CLOB, b.sequence(b.optional(b.optional(NOT), TRANSPORTABLE), BINARY, XML)),
+                        b.optional(b.firstOf(
+                            b.sequence(LPARENTHESIS, LOB_PARAMETERS, RPARENTHESIS),
+                            b.sequence(
+                                b.nextNot(b.firstOf(XMLSCHEMA, ELEMENT, XMLTYPE)),
+                                IDENTIFIER_NAME,
+                                b.optional(LPARENTHESIS, LOB_PARAMETERS, RPARENTHESIS)))))))
+
+            b.rule(XMLSCHEMA_SPEC).define(
+                b.optional(XMLSCHEMA, IDENTIFIER_NAME), ELEMENT, IDENTIFIER_NAME,
+                b.optional(STORE, ALL, VARRAYS, AS, b.firstOf(LOBS, TABLES)),
+                b.optional(b.firstOf(ALLOW, DISALLOW), NONSCHEMA),
+                b.optional(b.firstOf(ALLOW, DISALLOW), ANYSCHEMA))
+
+            b.rule(XMLTYPE_COLUMN_PROPERTIES).define(
+                XMLTYPE, b.optional(COLUMN), IDENTIFIER_NAME, b.optional(XMLTYPE_STORAGE), b.optional(XMLSCHEMA_SPEC))
+
+            b.rule(XMLTYPE_TABLE).define(
+                OF, XMLTYPE, b.nextNot(DOT),
+                b.optional(OBJECT_TABLE_PROPERTIES),
+                b.optional(XMLTYPE, XMLTYPE_STORAGE),
+                b.optional(XMLSCHEMA_SPEC),
+                b.optional(ON, COMMIT, b.firstOf(DELETE, PRESERVE), ROWS),
+                b.optional(OBJECT_IDENTIFIER_CLAUSE))
 
             b.rule(SUBSTITUTABLE_COLUMN_CLAUSE).define(
                     b.firstOf(
@@ -574,24 +786,6 @@ enum class DdlGrammar : GrammarRuleKey {
                                     DATATYPE,
                                     RPARENTHESIS),
                             OBJECT_TABLE_SUBSTITUTION))
-
-            b.rule(SIZE_CLAUSE).define(
-                    b.sequence(INTEGER_LITERAL, b.firstOf("K", "M", "G", "T", "P", "E")))
-
-            b.rule(STORAGE_CLAUSE).define(
-                    b.sequence(STORAGE,
-                            LPARENTHESIS,
-                            b.firstOf(
-                                    b.sequence(INITIAL, SIZE_CLAUSE),
-                                    b.sequence(NEXT, SIZE_CLAUSE),
-                                    b.sequence(MINEXTENTS, INTEGER_LITERAL),
-                                    b.sequence(MAXEXTENTS, b.firstOf(INTEGER_LITERAL, UNLIMITED)),
-                                    b.sequence(PCTINCREASE, INTEGER_LITERAL),
-                                    b.sequence(FREELISTS, INTEGER_LITERAL),
-                                    b.sequence(FREELIST, GROUPS, INTEGER_LITERAL),
-                                    b.sequence(OPTIMAL, b.optional(b.firstOf(SIZE_CLAUSE, NULL))),
-                                    b.sequence(BUFFER_POOL, b.firstOf(KEEP, RECYCLE, DEFAULT))),
-                            RPARENTHESIS))
 
             b.rule(LOGGING_CLAUSE).define(
                     b.firstOf(LOGGING, NOLOGGING))
@@ -607,8 +801,8 @@ enum class DdlGrammar : GrammarRuleKey {
                                             DISABLE),
                                     STORAGE,
                                     IN,
-                                    NOW),
-                            STORAGE_CLAUSE,
+                                    ROW),
+                            INDEX_STORAGE_CLAUSE,
                             b.sequence(
                                     CHUNK,
                                     INTEGER_LITERAL),
@@ -733,6 +927,7 @@ enum class DdlGrammar : GrammarRuleKey {
                                     b.oneOrMore(
                                             b.firstOf(
                                                     METHOD_CALL,
+                                                    LITERAL,
                                                     IDENTIFIER_NAME,
                                                     MAXVALUE),
                                             b.optional(COMMA)),
@@ -915,50 +1110,214 @@ enum class DdlGrammar : GrammarRuleKey {
                                             b.optional(COMMA))),
                             RPARENTHESIS))
 
-            b.rule(CREATE_TABLE).define(
-                    CREATE,
+            fun tablePartitioning() = b.optional(b.firstOf(
+                    PARTITION_BY_RANGE,
+                    PARTITION_BY_HASH,
+                    PARTITION_BY_LIST,
+                    PARTITION_COMPOSITE))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-TABLE.html
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-TABLE.html
+            // CREATE and ALTER TABLE parse the In-Memory clauses identically. Each clause is one table property,
+            // repeatable in any order: TEXT must directly follow INMEMORY (ORA-00922 after other attributes,
+            // unlike the diagram), NO INMEMORY TEXT is also accepted, and the column clause has no ALL.
+            // A second table-level INMEMORY/NO INMEMORY fails with ORA-64350, a duplicate-option error that,
+            // like the other repeated table options, is not encoded. MEMCOMPRESS AUTO is rejected.
+            val memcompress = b.firstOf(
+                    b.sequence(MEMCOMPRESS, FOR, b.firstOf(
+                            DML,
+                            b.sequence(QUERY, b.optional(b.firstOf(LOW, HIGH))),
+                            b.sequence(CAPACITY, b.optional(b.firstOf(LOW, HIGH))))),
+                    b.sequence(NO, MEMCOMPRESS))
+            val inmemoryAttribute = b.firstOf(
+                    memcompress,
+                    b.sequence(PRIORITY, b.firstOf(NONE, LOW, MEDIUM, HIGH, CRITICAL)),
+                    b.sequence(DISTRIBUTE,
+                            b.optional(b.firstOf(
+                                    AUTO,
+                                    b.sequence(BY, b.firstOf(b.sequence(ROWID, RANGE_KEYWORD), PARTITION, SUBPARTITION)))),
+                            b.optional(FOR, SERVICE, b.firstOf(DEFAULT, ALL, NONE, IDENTIFIER_NAME))),
+                    b.sequence(DUPLICATE, b.optional(ALL)),
+                    b.sequence(NO, DUPLICATE))
+            // Text columns are names (expressions fail with ORA-00904) with an optional literal policy name
+            // (ORA-01780 for an identifier).
+            val inmemoryTextColumn = b.sequence(
+                    IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)),
+                    b.optional(USING, CHARACTER_LITERAL))
+            val inmemoryProperty = b.firstOf(
+                    b.sequence(b.optional(NO), INMEMORY, TEXT,
+                            LPARENTHESIS, inmemoryTextColumn, b.zeroOrMore(COMMA, inmemoryTextColumn), RPARENTHESIS),
+                    b.sequence(INMEMORY, b.optional(memcompress), ONE_OR_MORE_IDENTIFIERS),
+                    b.sequence(NO, INMEMORY, ONE_OR_MORE_IDENTIFIERS),
+                    b.sequence(INMEMORY, b.zeroOrMore(inmemoryAttribute)),
+                    b.sequence(NO, INMEMORY))
+
+            // NO DROP and NO DELETE retention clauses, shared by CREATE of immutable/blockchain tables and ALTER.
+            // Oracle 26 reports a missing retention count as a value-range error (ORA-05741), not a syntax
+            // error, in both statements, so the count is optional here.
+            val noDropClause = b.sequence(NO, DROP, b.optional(UNTIL, b.optional(INTEGER_LITERAL), DAYS, IDLE))
+            val noDeleteClause = b.sequence(
+                    NO, DELETE, b.optional(UNTIL, b.optional(INTEGER_LITERAL), DAYS, AFTER, INSERT), b.optional(LOCKED))
+
+            // Oracle 26 accepts the table-level segment attributes, PARALLEL/NOPARALLEL and annotations in any
+            // order, both before and after the partitioning clause. Column properties such as LOB storage may
+            // also follow the segment attributes, but not the partitioning clause (ORA-14301). Duplicate
+            // PCTFREE, TABLESPACE or PARALLEL options fail with duplicate-option errors (ORA-02212/ORA-02215/
+            // ORA-12812), which the shared SEGMENT_ATTRIBUTES_CLAUSE does not encode either. Annotations must
+            // not precede ORGANIZATION INDEX (ORA-64303) or ON COMMIT (ORA-00922).
+            fun rowMovementClause() = b.sequence(b.firstOf(ENABLE, DISABLE), ROW, MOVEMENT)
+
+            // Oracle 26 also accepts ROW MOVEMENT anywhere among these properties, but only once (ORA-14190).
+            // The In-Memory clauses and FOR STAGING are equally position-free, before or after partitioning;
+            // CREATE rejects NOT FOR STAGING (ORA-00922), and a repeated FOR STAGING fails with ORA-12990.
+            fun tableLevelProperty() = b.firstOf(
+                    ANNOTATIONS_CLAUSE, SEGMENT_ATTRIBUTES_CLAUSE, INDEX_PARALLEL_CLAUSE, rowMovementClause(),
+                    inmemoryProperty, b.sequence(FOR, STAGING))
+
+            fun tableSuffixesWithAnnotations() = b.sequence(
+                    b.zeroOrMore(b.firstOf(
+                            tableLevelProperty(),
+                            NESTED_TABLE_COL_PROPERTIES,
+                            LOB_STORAGE_CLAUSE,
+                            VARRAY_COL_PROPERTIES,
+                            XMLTYPE_COLUMN_PROPERTIES)),
+                    tablePartitioning(),
+                    b.zeroOrMore(tableLevelProperty()))
+
+            // SEGMENT CREATION must come first: after relational properties but before column properties,
+            // ORGANIZATION INDEX and the other physical properties (ORA-00922), and never before ON COMMIT.
+            val deferredSegmentCreation = b.sequence(SEGMENT, CREATION, b.firstOf(IMMEDIATE, DEFERRED))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-TABLE.html
+            // Immutable and blockchain tables take their clauses right after the relational properties, or
+            // after the name for CTAS, before any other property (ORA-02000 otherwise). Oracle 26 requires them
+            // in this fixed order, each once (ORA-02000/ORA-00922), unlike the separately listed optional
+            // clauses of the diagrams:
+            //   NO DROP … NO DELETE … HASHING USING alg [WITH …] [CONFIGURE n SYSTEM CHAINS PER INSTANCE]
+            //   VERSION v                                                  (blockchain, all but WITH/CONFIGURE required)
+            //   NO DROP … NO DELETE … [WITH ROW VERSION name (…)] [VERSION v]   (immutable; row version first,
+            //                                                                  no HASHING, USER CHAIN or CONFIGURE)
+            // The hash algorithm and version are identifiers; unsupported values fail later (ORA-05716/ORA-05770)
+            // while literals fail during parsing (ORA-05700). Row-version columns may be parenthesized
+            // individually, as in the diagram. A missing CONFIGURE count is a range error (ORA-05804), so the
+            // count is optional. BLOCKCHAIN IMMUTABLE is not documented and Oracle 26 answers any
+            // CREATE BLOCKCHAIN not followed by TABLE with ORA-00439 before parsing further, so it stays out.
+            val rowVersionColumn = b.firstOf(b.sequence(LPARENTHESIS, IDENTIFIER_NAME, RPARENTHESIS), IDENTIFIER_NAME)
+            val rowVersionColumns = b.sequence(
+                    LPARENTHESIS, rowVersionColumn, b.zeroOrMore(COMMA, rowVersionColumn), RPARENTHESIS)
+            val blockchainTableClauses = b.sequence(
+                    noDropClause, noDeleteClause,
+                    HASHING, USING, IDENTIFIER_NAME,
                     b.optional(
-                            GLOBAL,
-                            TEMPORARY),
-                    TABLE,
+                            WITH,
+                            b.firstOf(
+                                    b.sequence(USER, CHAIN),
+                                    b.sequence(ROW, VERSION, b.optional(AND, USER, CHAIN))),
+                            IDENTIFIER_NAME, rowVersionColumns),
+                    b.optional(CONFIGURE, b.optional(INTEGER_LITERAL), SYSTEM, CHAINS, PER, INSTANCE),
+                    VERSION, IDENTIFIER_NAME)
+            val immutableTableClauses = b.sequence(
+                    noDropClause, noDeleteClause,
+                    b.optional(WITH, ROW, VERSION, IDENTIFIER_NAME, rowVersionColumns),
+                    b.optional(VERSION, IDENTIFIER_NAME))
+
+            // The prefix selects the ledger clauses, so each branch of CREATE_TABLE builds the body with its
+            // own clause slot. FLR inlines anonymous expressions per reference, so the three branches compile
+            // three copies of the body whether or not a parser context is used to select the clauses.
+            fun createTableBody(ledgerTableClauses: Any?): Any {
+                val relationalTail = b.firstOf(
+                        b.sequence(
+                                deferredSegmentCreation,
+                                tablePropertyClauses(),
+                                b.optional(INDEX_ORGANIZED_TABLE_CLAUSE),
+                                tableSuffixesWithAnnotations()),
+                        b.sequence(
+                                b.optional(TABLE_CLUSTER_CLAUSE),
+                                tablePropertyClauses(),
+                                b.optional(INDEX_ORGANIZED_TABLE_CLAUSE),
+                                b.firstOf(
+                                        b.sequence(
+                                                tablePartitioning(),
+                                                b.optional(
+                                                        TABLESPACE,
+                                                        IDENTIFIER_NAME),
+                                                ON,
+                                                COMMIT,
+                                                b.firstOf(
+                                                        DELETE,
+                                                        PRESERVE),
+                                                ROWS,
+                                                b.zeroOrMore(tableLevelProperty())),
+                                        tableSuffixesWithAnnotations())))
+                val relationalProperties = b.optional(LPARENTHESIS, TABLE_RELATIONAL_PROPERTIES, RPARENTHESIS)
+                return b.sequence(
                     UNIT_NAME,
+                    b.withContext(CREATE_ANNOTATIONS_CONTEXT, true, b.firstOf(
+                            b.sequence(
+                                    b.firstOf(XMLTYPE_TABLE, OBJECT_TABLE_CLAUSE),
+                                    tablePropertyClauses(),
+                                    b.optional(INDEX_ORGANIZED_TABLE_CLAUSE),
+                                    tableSuffixesWithAnnotations()),
+                            if (ledgerTableClauses == null) b.sequence(relationalProperties, relationalTail)
+                            else b.sequence(relationalProperties, ledgerTableClauses, relationalTail))),
                     b.firstOf(
                             b.sequence(
-                                    OBJECT_TABLE_CLAUSE,
-                                    tablePropertyClauses(),
-                                    b.optional(INDEX_ORGANIZED_TABLE_CLAUSE),
-                                    b.optional(b.firstOf(
-                                            PARTITION_BY_RANGE,
-                                            PARTITION_BY_HASH,
-                                            PARTITION_BY_LIST,
-                                            PARTITION_COMPOSITE)),
-                                    b.optional(
-                                            TABLESPACE,
-                                            IDENTIFIER_NAME)),
+                                    b.requireContext(OUTLINE_CREATE_TABLE_CONTEXT, true),
+                                    AS,
+                                    DmlGrammar.SELECT_EXPRESSION),
                             b.sequence(
-                                    b.optional(
-                                            LPARENTHESIS,
-                                            TABLE_RELATIONAL_PROPERTIES,
-                                            RPARENTHESIS),
-                                    tablePropertyClauses(),
-                                    b.optional(INDEX_ORGANIZED_TABLE_CLAUSE),
-                                    b.optional(b.firstOf(
-                                            PARTITION_BY_RANGE,
-                                            PARTITION_BY_HASH,
-                                            PARTITION_BY_LIST,
-                                            PARTITION_COMPOSITE)),
-                                    b.optional(
-                                            TABLESPACE,
-                                            IDENTIFIER_NAME),
-                                    b.optional(
-                                            ON,
-                                            COMMIT,
-                                            b.firstOf(
-                                                    DELETE,
-                                                    PRESERVE),
-                                            ROWS))),
-                    b.optional(AS, DmlGrammar.SELECT_EXPRESSION),
+                                    b.nextNot(b.requireContext(OUTLINE_CREATE_TABLE_CONTEXT, true)),
+                                    b.optional(AS, DmlGrammar.SELECT_EXPRESSION))),
                     b.optional(SEMICOLON))
+            }
+
+            b.rule(CREATE_TABLE).define(
+                    CREATE,
+                    b.firstOf(
+                            b.sequence(b.optional(IMMUTABLE), BLOCKCHAIN, TABLE,
+                                    createTableBody(blockchainTableClauses)),
+                            b.sequence(IMMUTABLE, TABLE,
+                                    createTableBody(immutableTableClauses)),
+                            b.sequence(b.optional(GLOBAL, TEMPORARY), TABLE, createTableBody(null))))
+
+            // Oracle parses three-part object names for every non-column family; resolution rejects
+            // nonexistent objects. Columns require table.column, optionally prefixed by a schema.
+            val statisticsColumnName = b.sequence(
+                IDENTIFIER_NAME, DOT, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val statisticsObjectName = b.sequence(
+                IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME), b.optional(DOT, IDENTIFIER_NAME))
+            b.rule(STATISTICS_ASSOCIATION_TARGET).define(b.firstOf(
+                b.sequence(COLUMNS, statisticsColumnName, b.zeroOrMore(COMMA, statisticsColumnName)),
+                b.sequence(b.firstOf(FUNCTIONS, PACKAGES, TYPES, INDEXES, INDEXTYPES),
+                    statisticsObjectName, b.zeroOrMore(COMMA, statisticsObjectName))))
+
+            val statisticsType = b.sequence(
+                USING, b.firstOf(NULL, b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))))
+            // Oracle checks whether numeric costs are integral; keep that validation out of the parser.
+            val statisticsCostValue = b.firstOf(INTEGER_LITERAL, NUMBER_LITERAL)
+            val defaultCost = b.sequence(
+                DEFAULT, COST, LPARENTHESIS, statisticsCostValue,
+                COMMA, statisticsCostValue,
+                COMMA, statisticsCostValue, RPARENTHESIS)
+            val defaultSelectivity = b.sequence(DEFAULT, SELECTIVITY, b.firstOf(INTEGER_LITERAL, NUMBER_LITERAL))
+            val statisticsDefaults = b.firstOf(
+                b.sequence(defaultCost, b.zeroOrMore(b.optional(COMMA), defaultSelectivity)),
+                b.sequence(defaultSelectivity, b.zeroOrMore(b.optional(COMMA), defaultSelectivity),
+                    b.optional(b.optional(COMMA), defaultCost)))
+            val statisticsStorage = b.sequence(
+                WITH, b.firstOf(SYSTEM, USER), MANAGED, STORAGE, TABLES)
+            b.rule(ASSOCIATE_STATISTICS).define(
+                ASSOCIATE, STATISTICS, WITH,
+                b.firstOf(
+                    b.sequence(b.next(INDEXTYPES), STATISTICS_ASSOCIATION_TARGET,
+                        statisticsType, b.optional(statisticsStorage)),
+                    b.sequence(STATISTICS_ASSOCIATION_TARGET,
+                        b.firstOf(statisticsType, statisticsDefaults))),
+                b.optional(SEMICOLON))
+
+            b.rule(DISASSOCIATE_STATISTICS).define(
+                DISASSOCIATE, STATISTICS, FROM, STATISTICS_ASSOCIATION_TARGET,
+                b.optional(FORCE), b.optional(SEMICOLON))
 
             // XMLIndex parameter syntax is carried inside the same quoted parameter string.
             b.rule(INDEX_PARAMETERS_CLAUSE).define(
@@ -982,6 +1341,8 @@ enum class DdlGrammar : GrammarRuleKey {
                     b.sequence(MAXSIZE, b.firstOf(UNLIMITED, INDEX_SIZE_CLAUSE)),
                     b.sequence(BUFFER_POOL, b.firstOf(KEEP, RECYCLE, DEFAULT)),
                     b.sequence(FLASH_CACHE, b.firstOf(KEEP, NONE, DEFAULT)),
+                    // Oracle 26 also parses CELL_FLASH_CACHE without the documented parentheses.
+                    b.sequence(CELL_FLASH_CACHE, b.firstOf(KEEP, NONE, DEFAULT)),
                     b.sequence(
                         LPARENTHESIS,
                         CELL_FLASH_CACHE,
@@ -1000,6 +1361,7 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.oneOrMore(b.firstOf(
                     b.sequence(PCTFREE, INTEGER_LITERAL),
                     b.sequence(INITRANS, INTEGER_LITERAL),
+                    b.sequence(MAXTRANS, INTEGER_LITERAL),
                     INDEX_STORAGE_CLAUSE)))
 
             b.rule(INDEX_PARALLEL_CLAUSE).define(
@@ -1060,13 +1422,15 @@ enum class DdlGrammar : GrammarRuleKey {
                     b.sequence(LPARENTHESIS, INDEX_ILM_ACTION, RPARENTHESIS),
                     INDEX_ILM_ACTION))
 
+            val notInCreate = b.nextNot(b.requireContext(CREATE_ANNOTATIONS_CONTEXT, true))
+
             b.rule(ANNOTATION).define(
                 b.optional(b.firstOf(
                     b.sequence(ADD, b.optional(b.firstOf(
                         b.sequence(IF, NOT, EXISTS),
-                        b.sequence(OR, REPLACE)))),
-                    b.sequence(DROP, b.optional(IF, EXISTS)),
-                    REPLACE)),
+                        b.sequence(notInCreate, OR, REPLACE)))),
+                    b.sequence(notInCreate, DROP, b.optional(IF, EXISTS)),
+                    b.sequence(notInCreate, REPLACE))),
                 IDENTIFIER_NAME,
                 b.optional(CHARACTER_LITERAL))
 
@@ -1301,6 +1665,89 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.optional(b.firstOf(DEFERRED, IMMEDIATE), INVALIDATION),
                 b.optional(SEMICOLON))
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/ccref/create-search-index.html
+            // The PARAMETERS payload stays an opaque string literal. Oracle 26 accepts the options below in
+            // any order, except that FILTER BY must precede ORDER BY, both must precede PARAMETERS, and
+            // neither may be split by another option or repeated (ORA-29850); PARAMETERS may appear once
+            // (ORA-29850). Duplicate ONLINE, LOCAL or PARALLEL options (ORA-02158/ORA-14000/ORA-12812)
+            // are not encoded. Oracle rejects TABLESPACE and STORAGE here (ORA-29850).
+            val searchIndexLocalPartition = b.sequence(PARTITION, b.optional(IDENTIFIER_NAME), b.optional(INDEX_PARAMETERS_CLAUSE))
+            val searchIndexOption = b.firstOf(
+                ONLINE,
+                b.sequence(LOCAL, b.optional(LPARENTHESIS, searchIndexLocalPartition,
+                    b.zeroOrMore(COMMA, searchIndexLocalPartition), RPARENTHESIS)),
+                INDEX_PARALLEL_CLAUSE,
+                UNUSABLE)
+            // Oracle 26 parses qualified FILTER BY and ORDER BY columns and only fails to resolve them (ORA-00904),
+            // but rejects expressions, NULLS and ASC/DESC after a FILTER BY column (ORA-02158).
+            val searchIndexColumn = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME), b.optional(DOT, IDENTIFIER_NAME))
+            val searchIndexOrderItem = b.sequence(searchIndexColumn, b.optional(b.firstOf(ASC, DESC)))
+            val searchIndexOrderBy = b.sequence(ORDER, BY, searchIndexOrderItem, b.zeroOrMore(COMMA, searchIndexOrderItem))
+            val searchIndexFilterBy = b.sequence(FILTER, BY, searchIndexColumn, b.zeroOrMore(COMMA, searchIndexColumn))
+
+            // Several targets (ORA-29851), expressions (ORA-29958) and qualified columns (ORA-00904) fail only after
+            // parsing, so the target list accepts expressions. ASC/DESC after a target is rejected (ORA-29850), which
+            // is why CREATE_INDEX_EXPR is not reused.
+            b.rule(CREATE_SEARCH_INDEX).define(
+                CREATE, SEARCH, INDEX, b.optional(IF, NOT, EXISTS), CREATE_INDEX_SCHEMA_OBJECT_NAME,
+                ON, CREATE_INDEX_SCHEMA_OBJECT_NAME, b.optional(IDENTIFIER_NAME),
+                LPARENTHESIS, EXPRESSION, b.zeroOrMore(COMMA, EXPRESSION), RPARENTHESIS,
+                b.optional(FOR, b.firstOf(TEXT, JSON, XML)),
+                b.zeroOrMore(searchIndexOption),
+                b.optional(
+                    b.firstOf(b.sequence(searchIndexFilterBy, b.optional(searchIndexOrderBy)), searchIndexOrderBy),
+                    b.zeroOrMore(searchIndexOption)),
+                b.optional(INDEX_PARAMETERS_CLAUSE, b.zeroOrMore(searchIndexOption)),
+                b.optional(SEMICOLON))
+
+            // VECTOR indexes have structured parameters, unlike the quoted payload of ordinary/domain indexes.
+            // Oracle validates duplicate keys, incompatible organizations and numeric ranges after parsing.
+            val vectorParameterName = b.firstOf(
+                b.sequence(NEIGHBOR, b.firstOf(
+                    b.sequence(PARTITION, GROUPING), PARTITIONS)),
+                b.sequence(RESCORE, FACTOR),
+                OFFLOAD_CREDENTIAL_NAME, OFFLOAD_URL,
+                TYPE, NEIGHBORS, M, EFCONSTRUCTION, SAMPLES_PER_PARTITION,
+                MIN_VECTORS_PER_PARTITION, ALGORITHM)
+            val vectorParameterValue = b.firstOf(
+                b.sequence(b.optional(b.firstOf(PLUS, MINUS)), b.firstOf(INTEGER_LITERAL, NUMBER_LITERAL)),
+                ON, IDENTIFIER_NAME, CHARACTER_LITERAL)
+            val vectorParameter = b.sequence(vectorParameterName, b.optional(vectorParameterValue))
+            val vectorOrganization = b.sequence(
+                ORGANIZATION,
+                b.firstOf(
+                    b.sequence(INMEMORY, b.optional(NEIGHBOR), GRAPH),
+                    b.sequence(b.optional(NEIGHBOR), PARTITIONS)))
+            val vectorOption = b.firstOf(
+                vectorOrganization,
+                b.sequence(b.optional(WITH), DISTANCE, b.firstOf(
+                    b.sequence(CUSTOM, IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME)),
+                    IDENTIFIER_NAME)),
+                b.sequence(WITH, TARGET, ACCURACY, b.firstOf(
+                    b.sequence(b.optional(b.firstOf(PLUS, MINUS)), b.firstOf(INTEGER_LITERAL, NUMBER_LITERAL)),
+                    b.sequence(LPARENTHESIS, INTEGER_LITERAL, RPARENTHESIS),
+                    IDENTIFIER_NAME)),
+                b.sequence(PARAMETERS, LPARENTHESIS,
+                    b.optional(vectorParameter, b.zeroOrMore(COMMA, vectorParameter)), RPARENTHESIS),
+                b.sequence(QUANTIZATION, SCALAR, COMPRESSION, RATIO, INTEGER_LITERAL),
+                b.sequence(DUPLICATE, ALL),
+                b.sequence(DISTRIBUTE, b.optional(b.firstOf(
+                    AUTO, b.sequence(BY, b.firstOf(
+                        b.sequence(ROWID, RANGE_KEYWORD), PARTITION, SUBPARTITION))))),
+                b.sequence(PARALLEL, b.optional(INTEGER_LITERAL)),
+                ONLINE, LOCAL,
+                b.sequence(TABLESPACE, IDENTIFIER_NAME))
+            b.rule(CREATE_VECTOR_INDEX).define(
+                CREATE, VECTOR, INDEX, b.optional(IF, NOT, EXISTS), CREATE_INDEX_SCHEMA_OBJECT_NAME,
+                ON, CREATE_INDEX_SCHEMA_OBJECT_NAME,
+                LPARENTHESIS, EXPRESSION, b.zeroOrMore(COMMA, EXPRESSION), RPARENTHESIS,
+                b.optional(INCLUDE, LPARENTHESIS, IDENTIFIER_NAME,
+                    b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS),
+                b.optional(GLOBAL),
+                vectorOrganization,
+                b.zeroOrMore(vectorOption),
+                b.optional(SEMICOLON))
+
             b.rule(CREATE_INDEX_FOR_CONSTRAINT).define(
                 createIndexHeader(),
                 b.firstOf(
@@ -1452,12 +1899,12 @@ enum class DdlGrammar : GrammarRuleKey {
                     IDENTIFIER_NAME,
                     b.optional(b.sequence(
                             b.nextNot(b.firstOf(COLLATE, DEFAULT, CONSTRAINT, CONSTRAINTS, NOT, NULL, ANNOTATIONS,
-                                    ENCRYPT, DECRYPT)),
+                                    ENCRYPT, DECRYPT, b.sequence(SCOPE, IS))),
                             DATATYPE)),
                     b.optional(COLLATE, IDENTIFIER_NAME),
                     b.optional(DEFAULT, EXPRESSION),
                     b.optional(b.firstOf(columnEncryptionClause(), DECRYPT)),
-                    b.zeroOrMore(INLINE_CONSTRAINT),
+                    b.zeroOrMore(b.firstOf(INLINE_REF_CONSTRAINT, INLINE_CONSTRAINT)),
                     b.optional(ANNOTATIONS_CLAUSE))
 
             b.rule(DROP_COLUMN_CLAUSE).define(
@@ -1594,12 +2041,13 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.firstOf(PARTITION_EXTENDED_NAME, SUBPARTITION_EXTENDED_NAME),
                 TO, IDENTIFIER_NAME)
 
-            // Oracle 26 runtime accepts CASCADE before index updates, opposite the SQLRF syntax diagram.
-            // Exchange cannot specify the index partition descriptions accepted by SPLIT and MERGE.
-            fun exchangeUpdateIndexes() = b.firstOf(
+            // EXCHANGE and TRUNCATE cannot specify the index partition descriptions
+            // accepted by SPLIT and MERGE.
+            fun restrictedIndexUpdates() = b.firstOf(
                 b.sequence(b.firstOf(UPDATE, "INVALIDATE"), GLOBAL, INDEXES),
                 b.sequence(UPDATE, INDEXES))
 
+            // Oracle 26 runtime accepts CASCADE before index updates, opposite the SQLRF syntax diagram.
             b.rule(EXCHANGE_PARTITION_SUBPART).define(
                 "EXCHANGE", b.firstOf(PARTITION_EXTENDED_NAME, SUBPARTITION_EXTENDED_NAME),
                 WITH, TABLE, UNIT_NAME,
@@ -1607,7 +2055,25 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.optional(b.firstOf(WITH, WITHOUT), "VALIDATION"),
                 b.optional(EXCEPTIONS_CLAUSE),
                 b.optional(CASCADE),
-                b.optional(exchangeUpdateIndexes(), b.optional(parallelClause())))
+                b.optional(restrictedIndexUpdates(), b.optional(parallelClause())))
+
+            val truncateForKeyValues = b.sequence(FOR, LPARENTHESIS, EXPRESSION,
+                b.zeroOrMore(COMMA, EXPRESSION), RPARENTHESIS)
+            fun truncateExtendedNames(singular: PlSqlKeyword, plural: PlSqlKeyword) = b.sequence(
+                b.firstOf(singular, plural),
+                b.firstOf(
+                    b.sequence(IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME)),
+                    b.sequence(truncateForKeyValues,
+                        b.zeroOrMore(COMMA, truncateForKeyValues))))
+
+            // Oracle 26 requires CASCADE before index updates, despite the SQLRF diagram.
+            b.rule(TRUNCATE_PARTITION_SUBPART).define(
+                TRUNCATE,
+                b.firstOf(truncateExtendedNames(PARTITION, PARTITIONS),
+                    truncateExtendedNames(SUBPARTITION, SUBPARTITIONS)),
+                b.optional(b.firstOf(b.sequence(DROP, b.optional(ALL)), REUSE), STORAGE),
+                b.optional(CASCADE),
+                b.optional(restrictedIndexUpdates(), b.optional(parallelClause())))
 
             b.rule(SPLIT_TABLE_PARTITION).define(
                 SPLIT, PARTITION_EXTENDED_NAME,
@@ -1662,15 +2128,139 @@ enum class DdlGrammar : GrammarRuleKey {
             b.rule(MODIFY_PARTITION_LOCAL_INDEXES).define(
                 MODIFY, PARTITION_EXTENDED_NAME, unusableLocalIndexesClause())
 
+            // The shared description permits repeated segment attributes; a partition MOVE
+            // must not specify TABLESPACE twice, including around physical/logging attributes.
+            val otherSegmentAttribute = b.firstOf(PHYSICAL_ATRIBUTES_CLAUSE, LOGGING_CLAUSE)
+            fun movePartitionDescription() = b.sequence(
+                b.nextNot(b.sequence(b.zeroOrMore(otherSegmentAttribute),
+                    TABLESPACE, IDENTIFIER_NAME, b.zeroOrMore(otherSegmentAttribute), TABLESPACE)),
+                b.next(b.firstOf(SEGMENT_ATTRIBUTES_CLAUSE, TABLE_COMPRESSION,
+                    KEY_COMPRESSION, OVERFLOW, LOB_STORAGE_CLAUSE,
+                    VARRAY_COL_PROPERTIES, NESTED_TABLE_COL_PROPERTIES,
+                    PARTITION_LEVEL_SUBPARTITION)),
+                TABLE_PARTITION_DESCRIPTION)
+
+            // Oracle 26 accepts these MOVE PARTITION suffixes in orders absent from its SQLRF diagram.
+            // Track remaining families so each can occur at most once.
+            val moveSuffixes = arrayOfNulls<Any>(16)
+            fun movePartitionSuffixes(remaining: Int): Any {
+                moveSuffixes[remaining]?.let { return it }
+                fun thenRemaining(clause: Any, next: Int) =
+                    if (next == 0) clause else b.sequence(clause, movePartitionSuffixes(next))
+
+                val choices = ArrayList<Any>(4)
+                if (remaining and 1 != 0) {
+                    choices.add(thenRemaining(movePartitionDescription(), remaining xor 1))
+                }
+                if (remaining and 2 != 0) {
+                    choices.add(thenRemaining(UPDATE_INDEX_CLAUSES, remaining xor 2))
+                }
+                if (remaining and 4 != 0) {
+                    choices.add(thenRemaining(parallelClause(), remaining xor 4))
+                }
+                if (remaining and 8 != 0) {
+                    choices.add(thenRemaining(ONLINE, remaining xor 8))
+                }
+                val result = b.optional(if (choices.size == 1) choices[0]
+                    else b.firstOf(choices[0], choices[1], *choices.drop(2).toTypedArray()))
+                moveSuffixes[remaining] = result
+                return result
+            }
+
+            b.rule(MOVE_TABLE_PARTITION).define(
+                MOVE, PARTITION_EXTENDED_NAME,
+                b.optional(MAPPING, TABLE),
+                movePartitionSuffixes(15))
+
             // Oracle rejects combining RENAME COLUMN with another ALTER TABLE operation (ORA-23290).
             fun renameColumnClause() = b.sequence(RENAME, COLUMN, IDENTIFIER_NAME, TO, IDENTIFIER_NAME)
+
+            // RENAME CONSTRAINT (ORA-23290) and RENAME TO (ORA-14047) are also standalone operations.
+            fun renameConstraintClause() = b.sequence(RENAME, CONSTRAINT, IDENTIFIER_NAME, TO, IDENTIFIER_NAME)
+            fun renameTableClause() = b.sequence(RENAME, TO, IDENTIFIER_NAME)
+
+            val resultCacheMode = b.sequence(MODE, b.firstOf(DEFAULT, FORCE))
+            val resultCacheStandby = b.sequence(STANDBY, b.firstOf(ENABLE, DISABLE))
+
+            // Oracle 26 accepts these properties in any order, together with the READ ONLY, ROW ARCHIVAL,
+            // FOR STAGING, DEFAULT COLLATION and annotation clauses that the SQLRF diagram lists separately,
+            // and the immutable-table retention clauses. Repeated PARALLEL, LOGGING or CACHE options fail with
+            // duplicate-option errors (ORA-12812/ORA-14102/ORA-12814) that are not encoded here.
+            // ANNOTATIONS followed by ENABLE CONSTRAINT parses but raises ORA-00600 when executed.
+            val alterTableProperty = b.firstOf(
+                    PHYSICAL_ATRIBUTES_CLAUSE,
+                    LOGGING_CLAUSE,
+                    TABLE_COMPRESSION,
+                    inmemoryProperty,
+                    INDEX_ALLOCATE_EXTENT_CLAUSE,
+                    INDEX_DEALLOCATE_UNUSED_CLAUSE,
+                    b.firstOf(CACHE, NOCACHE),
+                    b.sequence(RESULT_CACHE, LPARENTHESIS, b.firstOf(
+                            b.sequence(resultCacheMode, b.optional(COMMA, resultCacheStandby)),
+                            b.sequence(resultCacheStandby, b.optional(COMMA, resultCacheMode))), RPARENTHESIS),
+                    b.sequence(UPGRADE, b.optional(b.optional(NOT), INCLUDING, DATA)),
+                    b.sequence(b.firstOf(MINIMIZE, NOMINIMIZE), RECORDS_PER_BLOCK),
+                    INDEX_PARALLEL_CLAUSE,
+                    rowMovementClause(),
+                    b.sequence(DISABLE, LOGICAL, REPLICATION),
+                    b.sequence(ENABLE, LOGICAL, REPLICATION, b.zeroOrMore(b.firstOf(
+                            b.sequence(ALL, KEYS),
+                            b.sequence(ALLOW, NOVALIDATE, KEYS),
+                            b.sequence(b.optional(NO), PARTIAL, JSON)))),
+                    b.sequence(b.optional(BLOCKCHAIN), FLASHBACK, ARCHIVE, b.optional(IDENTIFIER_NAME)),
+                    b.sequence(NO, FLASHBACK, ARCHIVE),
+                    noDropClause,
+                    noDeleteClause,
+                    b.sequence(READ, b.firstOf(ONLY, WRITE)),
+                    b.sequence(b.optional(NO), ROW, ARCHIVAL),
+                    b.sequence(b.optional(NOT), FOR, STAGING),
+                    b.sequence(DEFAULT, COLLATION, IDENTIFIER_NAME),
+                    ANNOTATIONS_CLAUSE)
+
+            // alter_iot_clauses that may follow the properties. ADD OVERFLOW and COALESCE are standalone
+            // (ORA-14048 when combined with a property).
+            val alterIotClause = b.firstOf(
+                    b.sequence(OVERFLOW, b.oneOrMore(b.firstOf(SEGMENT_ATTRIBUTES_CLAUSE,
+                            INDEX_ALLOCATE_EXTENT_CLAUSE, INDEX_SHRINK_CLAUSE, INDEX_DEALLOCATE_UNUSED_CLAUSE))),
+                    b.sequence(MAPPING, TABLE, b.firstOf(INDEX_ALLOCATE_EXTENT_CLAUSE, INDEX_DEALLOCATE_UNUSED_CLAUSE)),
+                    b.oneOrMore(b.firstOf(b.sequence(PCTTHRESHOLD, INTEGER_LITERAL), KEY_COMPRESSION)))
+            val addOverflowPartition = b.sequence(PARTITION, b.optional(SEGMENT_ATTRIBUTES_CLAUSE))
+            val addOverflowClause = b.sequence(ADD, OVERFLOW, b.optional(SEGMENT_ATTRIBUTES_CLAUSE),
+                    b.optional(LPARENTHESIS, addOverflowPartition, b.zeroOrMore(COMMA, addOverflowPartition), RPARENTHESIS))
+
+            // SHRINK must be the last operation (ORA-10630), and MOVE cannot be combined (ORA-14133).
+            val shrinkTableClause = b.sequence(b.zeroOrMore(alterTableProperty), INDEX_SHRINK_CLAUSE)
+            // Oracle 26 accepts the MOVE options, including the row filter and UPDATE INDEXES, in any order.
+            // A second ONLINE is a syntax error (ORA-01735); other repeats fail as duplicate options
+            // (ORA-02215/ORA-12812/ORA-14460).
+            val moveTableOption = b.firstOf(
+                    b.sequence(INCLUDING, ROWS, DmlGrammar.WHERE_CLAUSE),
+                    SEGMENT_ATTRIBUTES_CLAUSE,
+                    TABLE_COMPRESSION,
+                    LOB_STORAGE_CLAUSE,
+                    VARRAY_COL_PROPERTIES,
+                    INDEX_PARALLEL_CLAUSE,
+                    b.sequence(UPDATE, INDEXES, b.optional(
+                            LPARENTHESIS, IDENTIFIER_NAME, SEGMENT_ATTRIBUTES_CLAUSE,
+                            b.zeroOrMore(COMMA, IDENTIFIER_NAME, SEGMENT_ATTRIBUTES_CLAUSE), RPARENTHESIS)))
+            val moveTableClause = b.sequence(
+                    MOVE,
+                    b.zeroOrMore(moveTableOption),
+                    b.optional(ONLINE, b.zeroOrMore(moveTableOption)))
+
+            val alterTableTrailingClause = b.firstOf(
+                    ENABLE_DISABLE_CLAUSE,
+                    b.sequence(b.firstOf(ENABLE, DISABLE), b.firstOf(
+                            b.sequence(TABLE, LOCK), b.sequence(ALL, TRIGGERS), CONTAINER_MAP, CONTAINERS_DEFAULT)))
+            val statementEnd = b.next(b.firstOf(SEMICOLON, DIVISION, EOF))
 
             fun alterTableAction() = b.firstOf(
                             b.sequence(
                                     ADD,
                                     b.firstOf(
                                             b.sequence(LPARENTHESIS, TABLE_RELATIONAL_PROPERTIES, RPARENTHESIS),
-                                            TABLE_RELATIONAL_PROPERTIES)),
+                                            TABLE_RELATIONAL_PROPERTIES),
+                                    tablePropertyClauses()),
                             ALTER_TABLE_MODIFY_CONSTRAINT,
                             b.sequence(
                                     MODIFY,
@@ -1682,36 +2272,73 @@ enum class DdlGrammar : GrammarRuleKey {
                                                     ALTER_TABLE_COLUMN,
                                                     b.next(b.firstOf(SEMICOLON, DIVISION, EOF, ENABLE_DISABLE_CLAUSE))))),
                             DROP_COLUMN_CLAUSE,
-                            b.sequence(DROP, b.next(PARTITION), TABLE_RELATIONAL_PROPERTIES),
-                            b.sequence(
-                                    MOVE,
-                                    b.optional(
-                                            b.firstOf(
-                                                    b.sequence(ONLINE, b.optional(TABLESPACE, IDENTIFIER_NAME)),
-                                                    b.sequence(TABLESPACE, IDENTIFIER_NAME, b.optional(ONLINE))))),
-                            b.sequence(b.firstOf(ENABLE, DISABLE), ROW, MOVEMENT))
+                            b.sequence(DROP, b.next(PARTITION), TABLE_RELATIONAL_PROPERTIES))
 
             b.rule(ALTER_TABLE).define(
                     ALTER, TABLE, UNIT_NAME,
                     b.firstOf(
                             renameColumnClause(),
+                            renameConstraintClause(),
+                            renameTableClause(),
                             RENAME_PARTITION_SUBPART,
+                            MOVE_TABLE_PARTITION,
+                            TRUNCATE_PARTITION_SUBPART,
                             EXCHANGE_PARTITION_SUBPART,
                             ADD_RANGE_TABLE_PARTITIONS,
                             SPLIT_TABLE_PARTITION,
                             MERGE_TABLE_PARTITIONS,
                             MODIFY_PARTITION_LOCAL_INDEXES,
+                            moveTableClause,
+                            shrinkTableClause,
+                            // Tried before ADD column; the end-of-statement lookahead keeps a column named OVERFLOW
+                            // (ADD overflow NUMBER) parsing as a column.
+                            b.sequence(addOverflowClause, b.zeroOrMore(alterTableTrailingClause), statementEnd),
+                            COALESCE,
                             b.sequence(
                                     b.oneOrMore(DROP_CONSTRAINT_CLAUSE),
-                                    b.zeroOrMore(ENABLE_DISABLE_CLAUSE)),
-                            b.sequence(alterTableAction(), b.zeroOrMore(ENABLE_DISABLE_CLAUSE)),
-                            b.oneOrMore(ENABLE_DISABLE_CLAUSE)),
+                                    b.zeroOrMore(alterTableTrailingClause)),
+                            b.sequence(alterTableAction(), b.zeroOrMore(alterTableTrailingClause)),
+                            b.sequence(
+                                    b.firstOf(
+                                            b.sequence(b.oneOrMore(alterTableProperty), b.optional(alterIotClause)),
+                                            alterIotClause),
+                                    b.zeroOrMore(alterTableTrailingClause)),
+                            b.oneOrMore(alterTableTrailingClause)),
                     b.optional(SEMICOLON))
 
             b.rule(ALTER_SYSTEM).define(
                     ALTER, SYSTEM,
                     b.oneOrMore(b.anyTokenButNot(b.firstOf(SEMICOLON, DIVISION, EOF))),
                     b.optional(SEMICOLON))
+
+            createLockdownProfile(b)
+            createDomain(b)
+            createAuditPolicy(b)
+            createPropertyGraph(b)
+            createUser(b)
+            createProfile(b)
+            createTablespace(b)
+            createRole(b)
+            createRollbackSegment(b)
+            createCluster(b)
+            createAnalyze(b)
+            createAudit(b)
+            createAssertion(b)
+            createZonemap(b)
+            createAttributeDimension(b)
+            createDimension(b)
+            createDatabaseLink(b)
+            createOutline(b)
+            createInmemoryJoinGroup(b)
+            createAlterView(b)
+            createFlashbackArchive(b)
+            createPurge(b)
+            createParameterFile(b)
+            createRestorePoint(b)
+            createFlashbackTable(b)
+            createEdition(b)
+            createOperator(b)
+            createIndextype(b)
 
             // https://docs.oracle.com/en/database/oracle/oracle-database/23/sqlrf/CREATE-CONTEXT.html
             b.rule(CREATE_CONTEXT).define(
@@ -1774,11 +2401,39 @@ enum class DdlGrammar : GrammarRuleKey {
                         PACKAGE_COMPILE_CLAUSE),
                     b.optional(SEMICOLON))
 
-            b.rule(PACKAGE_COMPILE_CLAUSE).define(
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/CREATE-LIBRARY-statement.html
+            val libraryName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val libraryEditionability = b.optional(b.firstOf(EDITIONABLE, NONEDITIONABLE))
+            b.rule(CREATE_LIBRARY).define(
+                    CREATE,
+                    b.firstOf(
+                            b.sequence(OR, REPLACE, libraryEditionability, LIBRARY),
+                            b.sequence(libraryEditionability, LIBRARY, b.optional(IF, NOT, EXISTS))),
+                    libraryName,
+                    b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
+                    b.firstOf(IS, AS),
+                    CHARACTER_LITERAL,
+                    b.optional(IN, IDENTIFIER_NAME),
+                    b.optional(AGENT, CHARACTER_LITERAL),
+                    b.optional(CREDENTIAL, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)),
+                    b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/ALTER-LIBRARY-statement.html
+            // One action only (ORA-03049 for a second); at most one name qualifier (ORA-00922).
+            b.rule(ALTER_LIBRARY).define(
+                    ALTER, LIBRARY, b.optional(IF, EXISTS), libraryName,
+                    b.firstOf(EDITIONABLE, NONEDITIONABLE, COMPILE_CLAUSE),
+                    b.optional(SEMICOLON))
+
+            // Package and type units name the part to compile; a type has no PACKAGE option (ORA-03049).
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/lnpls/ALTER-TYPE-statement.html
+            fun unitCompileClause(vararg parts: Any) = b.sequence(
                     COMPILE, b.optional(DEBUG),
-                    b.optional(b.firstOf(PACKAGE, SPECIFICATION, BODY)),
+                    b.optional(b.firstOf(parts[0], parts[1], *parts.drop(2).toTypedArray())),
                     b.zeroOrMore(COMPILER_PARAMETERS_CLAUSE),
                     b.optional(REUSE, SETTINGS))
+            b.rule(PACKAGE_COMPILE_CLAUSE).define(unitCompileClause(PACKAGE, SPECIFICATION, BODY))
+            b.rule(TYPE_COMPILE_CLAUSE).define(unitCompileClause(SPECIFICATION, BODY))
 
             b.rule(DROP_COMMAND).define(DROP, b.oneOrMore(b.anyTokenButNot(b.firstOf(SEMICOLON, DIVISION, EOF))), b.optional(SEMICOLON))
 
@@ -1790,6 +2445,16 @@ enum class DdlGrammar : GrammarRuleKey {
                 JAVA,
                 b.optional(IF, NOT, EXISTS),
                 CREATE_JAVA_OBJECT,
+                b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-JAVA.html
+            // Oracle 26 takes IF EXISTS after SOURCE/CLASS, not after JAVA as diagrammed (ORA-02000). Either
+            // kind accepts RESOLVE or COMPILE; exactly one of RESOLVE, COMPILE or AUTHID ends the statement
+            // (ORA-03049 for a second), and RESOLVER cannot stand alone (ORA-00922).
+            b.rule(ALTER_JAVA).define(
+                ALTER, JAVA, b.firstOf(SOURCE, CLASS), b.optional(IF, EXISTS), UNIT_NAME,
+                b.optional(JAVA_RESOLVER_CLAUSE),
+                b.firstOf(RESOLVE, COMPILE, JAVA_AUTHID_CLAUSE),
                 b.optional(SEMICOLON))
 
             b.rule(CREATE_JAVA_OBJECT).define(
@@ -1834,7 +2499,8 @@ enum class DdlGrammar : GrammarRuleKey {
             b.rule(JAVA_RESOLVER_CLAUSE).define(
                 RESOLVER,
                 LPARENTHESIS,
-                b.oneOrMore(JAVA_RESOLVER_ENTRY),
+                // Oracle 26 accepts an empty RESOLVER () in both CREATE and ALTER JAVA.
+                b.zeroOrMore(JAVA_RESOLVER_ENTRY),
                 RPARENTHESIS)
 
             b.rule(JAVA_RESOLVER_ENTRY).define(
@@ -1868,33 +2534,63 @@ enum class DdlGrammar : GrammarRuleKey {
                     b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE)),
                     FOR, DmlGrammar.TABLE_REFERENCE, b.optional(SEMICOLON))
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-SYNONYM.html
+            // Oracle 26 accepts exactly one action (ORA-03049 for a second) and rejects a schema-qualified
+            // public synonym at the dot (ORA-00922).
+            b.rule(ALTER_SYNONYM).define(
+                    ALTER,
+                    b.firstOf(
+                            b.sequence(PUBLIC, SYNONYM, b.optional(IF, EXISTS), IDENTIFIER_NAME),
+                            b.sequence(SYNONYM, b.optional(IF, EXISTS), IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))),
+                    b.firstOf(EDITIONABLE, NONEDITIONABLE, COMPILE),
+                    b.optional(SEMICOLON))
+
             val sequenceInteger = b.sequence(
                     b.optional(b.firstOf(PLUS, MINUS)),
                     b.next(INTEGER_LITERAL),
                     NUMERIC_LITERAL)
 
+            // Options shared by CREATE and ALTER SEQUENCE. Oracle 26 accepts them in any order and parses SCALE
+            // without EXTEND/NOEXTEND; duplicate or conflicting options fail after parsing (ORA-02279..ORA-02281).
+            val sequenceOption = b.firstOf(
+                    b.sequence(INCREMENT, BY, sequenceInteger),
+                    b.sequence(START, WITH, sequenceInteger),
+                    b.sequence(MAXVALUE, sequenceInteger),
+                    NOMAXVALUE,
+                    b.sequence(MINVALUE, sequenceInteger),
+                    NOMINVALUE,
+                    CYCLE,
+                    NOCYCLE,
+                    b.sequence(CACHE, sequenceInteger),
+                    NOCACHE,
+                    ORDER,
+                    NOORDER,
+                    KEEP,
+                    NOKEEP,
+                    b.sequence(SCALE, b.optional(b.firstOf(EXTEND, NOEXTEND))),
+                    NOSCALE,
+                    SESSION,
+                    GLOBAL)
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-SEQUENCE.html
+            // RESTART (ORA-64602), SHARD, OR REPLACE and EDITIONABLE are not CREATE SEQUENCE syntax.
             b.rule(CREATE_SEQUENCE).define(
-                    CREATE, SEQUENCE, UNIT_NAME,
+                    CREATE, SEQUENCE, b.optional(IF, NOT, EXISTS), UNIT_NAME,
                     b.optional(SHARING, EQUALS, b.firstOf(METADATA, DATA, NONE)),
-                    b.zeroOrMore(b.firstOf(
-                            b.sequence(INCREMENT, BY, sequenceInteger),
-                            b.sequence(START, WITH, sequenceInteger),
-                            b.sequence(MAXVALUE, sequenceInteger),
-                            NOMAXVALUE,
-                            b.sequence(MINVALUE, sequenceInteger),
-                            NOMINVALUE,
-                            CYCLE,
-                            NOCYCLE,
-                            b.sequence(CACHE, sequenceInteger),
-                            NOCACHE,
-                            ORDER,
-                            NOORDER,
-                            KEEP,
-                            NOKEEP,
-                            b.sequence(SCALE, b.firstOf(EXTEND, NOEXTEND)),
-                            NOSCALE,
-                            SESSION,
-                            GLOBAL)),
+                    b.zeroOrMore(sequenceOption),
+                    b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-SEQUENCE.html
+            // At least one option is required (ORA-02286), and SHARING is not an ALTER option. START WITH without
+            // RESTART (ORA-02283) and a repeated RESTART (ORA-64601) fail only after parsing. The probe instance
+            // rejects SHARD before parsing (ORA-02511), so SHARD follows the documented diagram.
+            b.rule(ALTER_SEQUENCE).define(
+                    ALTER, SEQUENCE, b.optional(IF, EXISTS), UNIT_NAME,
+                    b.oneOrMore(b.firstOf(
+                            sequenceOption,
+                            RESTART,
+                            b.sequence(SHARD, b.firstOf(EXTEND, NOEXTEND)),
+                            NOSHARD)),
                     b.optional(SEMICOLON))
 
             b.rule(CREATE_DIRECTORY).define(
@@ -1928,26 +2624,1587 @@ enum class DdlGrammar : GrammarRuleKey {
                 b.optional(SEMICOLON)
             )
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/TRUNCATE-CLUSTER.html
+            // Oracle 26 rejects DROP ALL STORAGE, CASCADE and a second storage clause (ORA-03291). It also
+            // parses the undocumented TRUNCATE TABLE materialized view log clause, before or after the
+            // storage clause. A database link (dblink[.domain][@connection]) parses and fails later with
+            // ORA-02021; a missing or numeric link name is ORA-01729.
+            val clusterStorageClause = b.sequence(b.firstOf(DROP, REUSE), STORAGE)
+            val clusterMaterializedViewLogClause = b.sequence(b.firstOf(PRESERVE, PURGE), MATERIALIZED, VIEW, LOG)
+            b.rule(TRUNCATE_CLUSTER).define(
+                TRUNCATE, CLUSTER, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                b.optional(REMOTE, DATABASE_LINK_NAME),
+                b.optional(b.firstOf(
+                    b.sequence(clusterStorageClause, b.optional(clusterMaterializedViewLogClause)),
+                    b.sequence(clusterMaterializedViewLogClause, b.optional(clusterStorageClause)))),
+                b.optional(SEMICOLON))
+
+            // Oracle accepts repeated resource names up to later validation (ORA-02376). Decimal
+            // and scientific numeric tokens are checked for integral values after parsing.
+            b.rule(ALTER_RESOURCE_COST).define(
+                ALTER, RESOURCE, COST,
+                b.oneOrMore(
+                    b.firstOf(CPU_PER_SESSION, CONNECT_TIME, LOGICAL_READS_PER_SESSION, PRIVATE_SGA),
+                    b.firstOf(INTEGER_LITERAL, NUMBER_LITERAL)),
+                b.optional(SEMICOLON))
+
+            // Oracle 26 rejects owners only after parsing (ORA-01765), even for deeper dotted names.
+            // A source @dblink is accepted and renames the local object; the destination rejects @.
+            val renameObjectName = b.sequence(IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME))
+            b.rule(RENAME_STATEMENT).define(
+                RENAME, renameObjectName,
+                b.optional(REMOTE, IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME)),
+                TO, renameObjectName, b.optional(SEMICOLON))
+
             b.rule(DDL_COMMAND).define(b.firstOf(
                 DDL_COMMENT,
                 CREATE_TABLE,
                 CREATE_INDEX,
+                CREATE_SEARCH_INDEX,
+                CREATE_VECTOR_INDEX,
+                ASSOCIATE_STATISTICS,
+                DISASSOCIATE_STATISTICS,
+                RENAME_STATEMENT,
+                ALTER_RESOURCE_COST,
                 CREATE_JAVA,
+                ALTER_JAVA,
                 CREATE_CONTEXT,
+                CREATE_DOMAIN,
+                ALTER_DOMAIN,
+                CREATE_FLEXIBLE_DOMAIN,
+                CREATE_MATERIALIZED_ZONEMAP,
+                ALTER_MATERIALIZED_ZONEMAP,
+                ALTER_MATERIALIZED_VIEW,
+                ALTER_MATERIALIZED_VIEW_LOG,
+                CREATE_ATTRIBUTE_DIMENSION,
+                CREATE_HIERARCHY,
+                CREATE_DIMENSION,
+                ALTER_DIMENSION,
+                ALTER_ATTRIBUTE_DIMENSION,
+                ALTER_HIERARCHY,
+                ALTER_ANALYTIC_VIEW,
+                CREATE_DATABASE_LINK,
+                ALTER_DATABASE_LINK,
+                CREATE_OUTLINE,
+                ALTER_OUTLINE,
+                CREATE_INMEMORY_JOIN_GROUP,
+                ALTER_INMEMORY_JOIN_GROUP,
+                ALTER_VIEW,
+                CREATE_FLASHBACK_ARCHIVE,
+                ALTER_FLASHBACK_ARCHIVE,
+                PURGE_STATEMENT,
+                CREATE_PFILE,
+                CREATE_SPFILE,
+                CREATE_RESTORE_POINT,
+                FLASHBACK_TABLE,
+                CREATE_EDITION,
+                CREATE_OPERATOR,
+                ALTER_OPERATOR,
+                CREATE_INDEXTYPE,
+                ALTER_INDEXTYPE,
+                CREATE_AUDIT_POLICY,
+                ALTER_AUDIT_POLICY,
+                CREATE_PROPERTY_GRAPH,
+                CREATE_USER,
+                ALTER_USER,
+                CREATE_PROFILE,
+                ALTER_PROFILE,
+                CREATE_TABLESPACE,
+                ALTER_TABLESPACE,
+                CREATE_ROLE,
+                ALTER_ROLE,
+                CREATE_ROLLBACK_SEGMENT,
+                ALTER_ROLLBACK_SEGMENT,
+                CREATE_CLUSTER,
+                ALTER_CLUSTER,
+                ANALYZE_STATEMENT,
+                AUDIT_STATEMENT,
+                NOAUDIT_STATEMENT,
+                CREATE_ASSERTION,
                 CALL_COMMAND,
                 ALTER_SYSTEM,
+                ALTER_LOCKDOWN_PROFILE,
                 ALTER_TABLE,
                 ALTER_INDEX,
                 ALTER_TRIGGER,
                 ALTER_PROCEDURE,
                 ALTER_FUNCTION,
                 ALTER_PACKAGE,
+                ALTER_TYPE,
+                CREATE_LIBRARY,
+                ALTER_LIBRARY,
                 CREATE_SYNONYM,
+                ALTER_SYNONYM,
                 CREATE_SEQUENCE,
+                ALTER_SEQUENCE,
                 CREATE_DIRECTORY,
                 DROP_DIRECTORY,
                 DROP_COMMAND,
+                TRUNCATE_CLUSTER,
                 TRUNCATE_TABLE))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/create-domain.html
+        // The single-column (`AS datatype` or `AS ENUM (...)`), multi-column `AS (...)` and flexible branches.
+        private fun createDomain(b: PlSqlGrammarBuilder) {
+            // Oracle 26 accepts only these states after a domain CHECK: USING INDEX, PRECHECK and
+            // EXCEPTIONS INTO fail with ORA-03049.
+            val domainConstraintState = b.sequence(
+                b.optional(b.firstOf(
+                    b.sequence(INITIALLY, b.firstOf(DEFERRED, IMMEDIATE), b.optional(b.optional(NOT), DEFERRABLE)),
+                    b.sequence(b.optional(NOT), DEFERRABLE, b.optional(INITIALLY, b.firstOf(DEFERRED, IMMEDIATE))))),
+                b.optional(b.firstOf(RELY, NORELY)),
+                b.optional(b.firstOf(ENABLE, DISABLE)),
+                b.optional(b.firstOf(VALIDATE, NOVALIDATE)))
+
+            // A name is allowed only on CHECK: `CONSTRAINT c NOT NULL` fails with ORA-02253.
+            b.rule(DOMAIN_CONSTRAINT).define(
+                b.optional(CONSTRAINT, b.optional(IDENTIFIER_NAME)),
+                CHECK, LPARENTHESIS, EXPRESSION, RPARENTHESIS,
+                domainConstraintState)
+
+            val defaultProperty = b.sequence(
+                DEFAULT,
+                b.optional(ON, NULL, b.optional(FOR, INSERT, b.firstOf(ONLY, b.sequence(AND, UPDATE)))),
+                EXPRESSION)
+            val nullProperty = b.sequence(b.optional(NOT), NULL)
+            val validateProperty = b.sequence(VALIDATE, b.optional(CAST), b.optional(USING), CHARACTER_LITERAL)
+            val collateProperty = b.sequence(COLLATE, IDENTIFIER_NAME)
+            val displayProperty = b.sequence(DISPLAY, EXPRESSION)
+            val orderProperty = b.sequence(ORDER, EXPRESSION)
+            val annotationsProperty = b.withContext(CREATE_ANNOTATIONS_CONTEXT, true, ANNOTATIONS_CLAUSE)
+
+            // Oracle 26 accepts these properties in any order after the datatype and STRICT, with CHECK
+            // constraints repeatable. Oracle rejects a repeated singleton property (ORA-00139/ORA-02258),
+            // but tracking that per property makes the compiled grammar grow factorially, so the parser
+            // accepts repeats.
+            val domainProperty = b.firstOf(
+                DOMAIN_CONSTRAINT, defaultProperty, nullProperty, validateProperty, collateProperty,
+                displayProperty, orderProperty, annotationsProperty)
+
+            // ENUM (name [= alias]... [= value], ...) exists only in domains: a table column typed ENUM fails with
+            // ORA-03060, so it stays out of DATATYPE. An alias is a bare name followed by `=`, `,` or `)`; anything
+            // else after `=` is the constant value, which must come last (ORA-00917 for `a = 1 = b`), hence a
+            // non-boolean expression. Oracle 26 also accepts an empty list and a trailing comma.
+            val enumItem = b.sequence(
+                IDENTIFIER_NAME,
+                b.zeroOrMore(EQUALS, IDENTIFIER_NAME, b.next(b.firstOf(EQUALS, COMMA, RPARENTHESIS))),
+                b.optional(EQUALS, PlSqlGrammar.CONCATENATION_EXPRESSION))
+            b.rule(DOMAIN_ENUM).define(
+                ENUM, LPARENTHESIS,
+                b.optional(enumItem, b.zeroOrMore(COMMA, enumItem), b.optional(COMMA)),
+                RPARENTHESIS)
+
+            // Unquoted ENUM always starts the enum branch: Oracle 26 reports ORA-00904 right after a bare ENUM,
+            // while "ENUM" or other names are datatypes (ORA-11531 afterwards).
+            val domainType = b.firstOf(DOMAIN_ENUM, b.sequence(b.nextNot(ENUM), DATATYPE))
+
+            // In a multi-column domain each column takes the column-level properties (plus annotations, which the
+            // diagram omits) but not DISPLAY or ORDER (ORA-00904/ORA-03050); the domain as a whole takes only
+            // CHECK constraints, DISPLAY, ORDER and annotations (ORA-03048/ORA-03049 for the others). Both lists
+            // accept any order.
+            b.rule(DOMAIN_COLUMN).define(
+                IDENTIFIER_NAME, AS, domainType, b.optional(STRICT),
+                b.zeroOrMore(b.firstOf(
+                    DOMAIN_CONSTRAINT, defaultProperty, nullProperty, validateProperty, collateProperty,
+                    annotationsProperty)))
+            val multiColumnProperty = b.firstOf(DOMAIN_CONSTRAINT, displayProperty, orderProperty, annotationsProperty)
+
+            b.rule(CREATE_DOMAIN).define(
+                CREATE, b.optional(USECASE), DOMAIN, b.optional(IF, NOT, EXISTS),
+                IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                AS,
+                b.firstOf(
+                    // Oracle 26 also accepts a trailing comma before the closing parenthesis.
+                    b.sequence(
+                        LPARENTHESIS, DOMAIN_COLUMN, b.zeroOrMore(COMMA, DOMAIN_COLUMN), b.optional(COMMA), RPARENTHESIS,
+                        b.zeroOrMore(multiColumnProperty)),
+                    b.sequence(
+                        domainType,
+                        // STRICT must follow the datatype immediately (ORA-03049 elsewhere).
+                        b.optional(STRICT),
+                        b.zeroOrMore(domainProperty))),
+                b.optional(SEMICOLON))
+
+            // The flexible domain is a separate statement shape: bare column names (ORA-03050 for `v1 NUMBER`),
+            // then `name datatype` discriminants (ORA-00902 without a datatype). Oracle 26 accepts any expression
+            // after FROM while parsing (a plain call, NVL, `|| 'x'`); the documented DECODE/CASE restriction is
+            // semantic. Nothing may follow it (ORA-03049 for DISPLAY or ANNOTATIONS). Both lists may be empty,
+            // and the column list accepts a trailing comma.
+            b.rule(CREATE_FLEXIBLE_DOMAIN).define(
+                CREATE, b.optional(USECASE), FLEXIBLE, DOMAIN, b.optional(IF, NOT, EXISTS),
+                IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                LPARENTHESIS,
+                b.optional(IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), b.optional(COMMA)),
+                RPARENTHESIS,
+                CHOOSE, DOMAIN, USING,
+                LPARENTHESIS,
+                b.optional(IDENTIFIER_NAME, DATATYPE, b.zeroOrMore(COMMA, IDENTIFIER_NAME, DATATYPE)),
+                RPARENTHESIS,
+                FROM, EXPRESSION,
+                b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/alter-domain.html
+            // A single action per statement (ORA-03048/ORA-03049 at a second one). Outside CREATE, the
+            // annotations clause keeps its ADD/DROP/REPLACE directives.
+            b.rule(ALTER_DOMAIN).define(
+                ALTER, b.optional(USECASE), DOMAIN, b.optional(IF, EXISTS),
+                IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                b.firstOf(
+                    b.sequence(b.firstOf(ADD, MODIFY), b.firstOf(DISPLAY, ORDER), EXPRESSION),
+                    b.sequence(DROP, b.firstOf(DISPLAY, ORDER)),
+                    ANNOTATIONS_CLAUSE),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-AUDIT-POLICY-Unified-Auditing.html
+        private fun createAuditPolicy(b: PlSqlGrammarBuilder) {
+            // In ALTER AUDIT POLICY, DROP is also a privilege/action word (DROP ANY TABLE), so it only
+            // ends a list when it starts the DROP clause.
+            val clauseStart = b.firstOf(
+                PRIVILEGES, ACTIONS, ROLES, WHEN, ONLY, CONTAINER, CONDITION,
+                b.sequence(DROP, b.firstOf(PRIVILEGES, ACTIONS, ROLES, ONLY)))
+            val privilegeWords = b.oneOrMore(b.nextNot(clauseStart), DclGrammar.IDENTIFIER_OR_KEYWORD)
+            val actionWords = b.oneOrMore(b.nextNot(b.firstOf(clauseStart, ON)), DclGrammar.IDENTIFIER_OR_KEYWORD)
+            val schemaObjectName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+
+            b.rule(AUDIT_PRIVILEGE_CLAUSE).define(PRIVILEGES, privilegeWords, b.zeroOrMore(COMMA, privilegeWords))
+
+            val objectAction = b.sequence(
+                actionWords,
+                b.optional(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS),
+                ON,
+                b.firstOf(
+                    b.sequence(DIRECTORY, schemaObjectName),
+                    b.sequence(MINING, MODEL, schemaObjectName),
+                    schemaObjectName))
+            val standardAction = b.firstOf(objectAction, actionWords)
+
+            val firewallAction = b.sequence(
+                b.firstOf(b.sequence(SQL, VIOLATION), b.sequence(CONTEXT, VIOLATION), ALL), ON, IDENTIFIER_NAME)
+            val componentActions = b.sequence(
+                COMPONENT, EQUALS,
+                b.firstOf(
+                    b.sequence(
+                        b.firstOf(DATAPUMP, DIRECT_LOAD, OLS, XS),
+                        actionWords, b.zeroOrMore(COMMA, actionWords)),
+                    b.sequence(
+                        DV,
+                        actionWords, ON, IDENTIFIER_NAME,
+                        b.zeroOrMore(COMMA, actionWords, ON, IDENTIFIER_NAME)),
+                    b.sequence(SQL_FIREWALL, firewallAction, b.zeroOrMore(COMMA, firewallAction)),
+                    b.sequence(PROTOCOL, b.firstOf(FTP, HTTP, AUTHENTICATION))))
+
+            b.rule(AUDIT_ACTION_CLAUSE).define(
+                ACTIONS,
+                b.firstOf(componentActions, b.sequence(standardAction, b.zeroOrMore(COMMA, standardAction))))
+
+            b.rule(AUDIT_ROLE_CLAUSE).define(
+                ROLES, DclGrammar.IDENTIFIER_OR_KEYWORD, b.zeroOrMore(COMMA, DclGrammar.IDENTIFIER_OR_KEYWORD))
+
+            // Oracle 26 requires at least one option and this order (ORA-46373/ORA-46383); only ACTIONS repeats.
+            b.rule(CREATE_AUDIT_POLICY).define(
+                CREATE, AUDIT, POLICY, IDENTIFIER_NAME,
+                b.firstOf(
+                    b.sequence(AUDIT_PRIVILEGE_CLAUSE, b.zeroOrMore(AUDIT_ACTION_CLAUSE), b.optional(AUDIT_ROLE_CLAUSE)),
+                    b.sequence(b.oneOrMore(AUDIT_ACTION_CLAUSE), b.optional(AUDIT_ROLE_CLAUSE)),
+                    AUDIT_ROLE_CLAUSE),
+                b.optional(
+                    WHEN, CHARACTER_LITERAL,
+                    EVALUATE, PER, b.firstOf(STATEMENT_KEYWORD, SESSION, INSTANCE)),
+                b.optional(ONLY, TOPLEVEL),
+                b.optional(CONTAINER, EQUALS, b.firstOf(ALL, CURRENT)),
+                b.optional(SEMICOLON))
+
+            val policyChanges = b.sequence(
+                b.optional(AUDIT_PRIVILEGE_CLAUSE),
+                b.zeroOrMore(AUDIT_ACTION_CLAUSE),
+                b.optional(AUDIT_ROLE_CLAUSE),
+                b.optional(ONLY, TOPLEVEL))
+
+            // Oracle 26 requires ADD, DROP and CONDITION in this order (ORA-46384) and rejects the
+            // documented `ACTIONS ADD ...` example at ACTIONS (ORA-03049).
+            b.rule(ALTER_AUDIT_POLICY).define(
+                ALTER, AUDIT, POLICY, IDENTIFIER_NAME,
+                b.optional(ADD, policyChanges),
+                b.optional(DROP, policyChanges),
+                b.optional(
+                    CONDITION,
+                    b.firstOf(
+                        DROP,
+                        b.sequence(CHARACTER_LITERAL, EVALUATE, PER, b.firstOf(STATEMENT_KEYWORD, SESSION, INSTANCE)))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-PROFILE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-PROFILE.html
+        private fun createProfile(b: PlSqlGrammarBuilder) {
+            val unlimitedOrDefault = b.firstOf(UNLIMITED, DEFAULT)
+            // Resource limits take a plain integer: Oracle 26 rejects `CPU_PER_CALL 1+1` at the operator.
+            val resourceParameter = b.firstOf(
+                b.sequence(
+                    b.firstOf(
+                        SESSIONS_PER_USER, CPU_PER_SESSION, CPU_PER_CALL, CONNECT_TIME, IDLE_TIME,
+                        LOGICAL_READS_PER_SESSION, LOGICAL_READS_PER_CALL, COMPOSITE_LIMIT),
+                    b.firstOf(INTEGER_LITERAL, unlimitedOrDefault)),
+                b.sequence(PRIVATE_SGA, b.firstOf(INDEX_SIZE_CLAUSE, unlimitedOrDefault)))
+            // Oracle 26 also accepts UNLIMITED for PASSWORD_ROLLOVER_TIME, which the diagram omits.
+            val passwordParameter = b.firstOf(
+                b.sequence(
+                    b.firstOf(
+                        FAILED_LOGIN_ATTEMPTS, PASSWORD_LIFE_TIME, PASSWORD_REUSE_TIME, PASSWORD_REUSE_MAX,
+                        PASSWORD_LOCK_TIME, PASSWORD_GRACE_TIME, INACTIVE_ACCOUNT_TIME, PASSWORD_ROLLOVER_TIME),
+                    b.firstOf(unlimitedOrDefault, EXPRESSION)),
+                b.sequence(
+                    PASSWORD_VERIFY_FUNCTION,
+                    b.firstOf(NULL, DEFAULT, b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)))))
+
+            b.rule(PROFILE_LIMIT_CLAUSE).define(
+                LIMIT, b.oneOrMore(b.firstOf(resourceParameter, passwordParameter)),
+                b.optional(CONTAINER, EQUALS, b.firstOf(CURRENT, ALL)))
+
+            b.rule(CREATE_PROFILE).define(
+                CREATE, b.optional(MANDATORY), PROFILE, IDENTIFIER_NAME, PROFILE_LIMIT_CLAUSE, b.optional(SEMICOLON))
+
+            b.rule(ALTER_PROFILE).define(
+                ALTER, PROFILE, b.firstOf(DEFAULT, IDENTIFIER_NAME), PROFILE_LIMIT_CLAUSE, b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-DATABASE-LINK.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-DATABASE-LINK.html
+        private fun createDatabaseLink(b: PlSqlGrammarBuilder) {
+            // A link name is any number of dot-separated components (a global name such as remote.us.example.com,
+            // not schema.object) with an optional @connection_qualifier.
+            b.rule(DATABASE_LINK_NAME).define(
+                IDENTIFIER_NAME, b.zeroOrMore(DOT, IDENTIFIER_NAME), b.optional(REMOTE, IDENTIFIER_NAME))
+
+            // Passwords are identifiers (ORA-00988 for a literal); VALUES takes the hashed string.
+            val password = b.firstOf(b.sequence(VALUES, CHARACTER_LITERAL), IDENTIFIER_NAME)
+            val credential = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val connectAs = b.sequence(IDENTIFIER_NAME, IDENTIFIED, BY, password)
+            val authentication = b.sequence(
+                AUTHENTICATED, b.firstOf(b.sequence(BY, connectAs), b.sequence(WITH, CREDENTIAL)))
+            // The connect string must be a literal (ORA-02010) and comes last (ORA-03048 for CONNECT after it).
+            val usingClause = b.optional(USING, CHARACTER_LITERAL)
+            // The lookahead keeps these rules from consuming the prefix of CREATE/ALTER DATABASE statements.
+            fun header(start: Any, shared: Boolean) = b.sequence(
+                b.next(start, b.optional(SHARED), b.optional(PUBLIC), DATABASE, LINK),
+                start, if (shared) SHARED else b.nextNot(SHARED), b.optional(PUBLIC), DATABASE, LINK)
+
+            // At most one CONNECT, before AUTHENTICATED (ORA-03048). AUTHENTICATED is required for a shared link
+            // and rejected otherwise (ORA-00922/ORA-00905). Everything else is optional: `CREATE DATABASE LINK l`
+            // parses. PUBLIC must follow SHARED (ORA-00901), and OR REPLACE is rejected.
+            val createConnect = b.optional(
+                CONNECT,
+                b.firstOf(b.sequence(TO, b.firstOf(CURRENT_USER, connectAs)), b.sequence(WITH, credential)))
+            val createName = b.sequence(b.optional(IF, NOT, EXISTS), DATABASE_LINK_NAME)
+            b.rule(CREATE_DATABASE_LINK).define(
+                b.firstOf(
+                    b.sequence(header(CREATE, true), createName, createConnect, authentication, usingClause),
+                    b.sequence(header(CREATE, false), createName, createConnect, usingClause)),
+                b.optional(SEMICOLON))
+
+            // ALTER cannot switch to CURRENT_USER (ORA-00987) and needs at least one clause (ORA-03048). It also
+            // accepts the undocumented trailing USING. AUTHENTICATED stays shared-only (ORA-03049) but is optional.
+            val alterConnect = b.sequence(
+                CONNECT, b.firstOf(b.sequence(TO, connectAs), b.sequence(WITH, credential)))
+            val alterName = b.sequence(b.optional(IF, EXISTS), DATABASE_LINK_NAME)
+            b.rule(ALTER_DATABASE_LINK).define(
+                b.firstOf(
+                    b.sequence(
+                        header(ALTER, true), alterName,
+                        b.firstOf(
+                            b.sequence(alterConnect, b.optional(authentication), usingClause),
+                            b.sequence(authentication, usingClause),
+                            b.sequence(USING, CHARACTER_LITERAL))),
+                    b.sequence(
+                        header(ALTER, false), alterName,
+                        b.firstOf(b.sequence(alterConnect, usingClause), b.sequence(USING, CHARACTER_LITERAL)))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-OUTLINE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-OUTLINE.html
+        private fun createOutline(b: PlSqlGrammarBuilder) {
+            val categoryClause = b.sequence(FOR, CATEGORY, IDENTIFIER_NAME)
+            // Oracle permits only query/DML and CREATE TABLE AS SELECT here. Keep INSERT restricted to its
+            // single-table subquery form; VALUES and multitable INSERT are not valid outline statements.
+            val insertSelect = b.sequence(
+                INSERT,
+                DmlGrammar.INSERT_INTO_CLAUSE,
+                b.optional(BY, b.firstOf(NAME, POSITION)),
+                DmlGrammar.SELECT_EXPRESSION,
+                b.optional(DmlGrammar.ERROR_LOGGING_CLAUSE))
+            val outlinedStatement = b.firstOf(
+                DmlGrammar.SELECT_EXPRESSION,
+                DmlGrammar.DELETE_EXPRESSION,
+                DmlGrammar.UPDATE_EXPRESSION,
+                insertSelect,
+                b.withContext(OUTLINE_CREATE_TABLE_CONTEXT, true, CREATE_TABLE))
+
+            b.rule(CREATE_OUTLINE).define(
+                CREATE, b.optional(OR, REPLACE), b.optional(b.firstOf(PUBLIC, PRIVATE)), OUTLINE,
+                b.optional(IDENTIFIER_NAME),
+                b.firstOf(
+                    b.sequence(
+                        FROM, b.optional(b.firstOf(PUBLIC, PRIVATE)), IDENTIFIER_NAME,
+                        b.optional(categoryClause)),
+                    b.sequence(b.optional(categoryClause), ON, outlinedStatement)),
+                b.optional(SEMICOLON))
+
+            val alterAction = b.firstOf(
+                REBUILD,
+                b.sequence(RENAME, TO, IDENTIFIER_NAME),
+                b.sequence(CHANGE, CATEGORY, TO, IDENTIFIER_NAME),
+                ENABLE,
+                DISABLE)
+            // Oracle 26 accepts PUBLIC/PRIVATE before OUTLINE, despite the generated syntax text placing it after.
+            b.rule(ALTER_OUTLINE).define(
+                ALTER, b.optional(b.firstOf(PUBLIC, PRIVATE)), OUTLINE, IDENTIFIER_NAME,
+                b.oneOrMore(alterAction),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-FLASHBACK-ARCHIVE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-FLASHBACK-ARCHIVE.html
+        private fun createFlashbackArchive(b: PlSqlGrammarBuilder) {
+            val quotaClause = b.sequence(QUOTA, INDEX_SIZE_CLAUSE)
+            val retentionClause = b.sequence(RETENTION, INTEGER_LITERAL, b.firstOf(YEAR, MONTH, DAY))
+            val optimizeClause = b.firstOf(b.sequence(OPTIMIZE, DATA), b.sequence(NO, OPTIMIZE, DATA))
+
+            // Oracle 26 enforces strict ordering: TABLESPACE, QUOTA, [NO] OPTIMIZE DATA, RETENTION.
+            // Reordering produces ORA-55603. TABLESPACE and RETENTION are mandatory per the production.
+            b.rule(CREATE_FLASHBACK_ARCHIVE).define(
+                CREATE, FLASHBACK, ARCHIVE, b.optional(DEFAULT), IDENTIFIER_NAME,
+                TABLESPACE, IDENTIFIER_NAME,
+                b.optional(quotaClause),
+                b.optional(optimizeClause),
+                retentionClause,
+                b.optional(SEMICOLON))
+
+            // ALTER allows exactly one action per statement (ORA-03048 for two). No schema qualification.
+            val alterAction = b.firstOf(
+                b.sequence(SET, DEFAULT),
+                b.sequence(b.firstOf(ADD, MODIFY), TABLESPACE, IDENTIFIER_NAME, b.optional(quotaClause)),
+                b.sequence(REMOVE, TABLESPACE, IDENTIFIER_NAME),
+                b.sequence(MODIFY, RETENTION, INTEGER_LITERAL, b.firstOf(YEAR, MONTH, DAY)),
+                b.sequence(PURGE, b.firstOf(
+                    ALL,
+                    b.sequence(BEFORE, b.firstOf(
+                        b.sequence(SCN, EXPRESSION),
+                        b.sequence(TIMESTAMP, EXPRESSION))))),
+                optimizeClause)
+            b.rule(ALTER_FLASHBACK_ARCHIVE).define(
+                ALTER, FLASHBACK, ARCHIVE, IDENTIFIER_NAME,
+                alterAction,
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/PURGE.html
+        private fun createPurge(b: PlSqlGrammarBuilder) {
+            // TABLE and INDEX accept schema-qualified names (ORA-01435 for missing user) and
+            // system-generated recycle-bin names containing $. TABLESPACE and USER are unqualified
+            // (ORA-38303 for dot-qualified).
+            b.rule(PURGE_STATEMENT).define(
+                PURGE,
+                b.firstOf(
+                    b.sequence(b.firstOf(TABLE, INDEX), UNIT_NAME),
+                    b.sequence(TABLESPACE, b.optional(SET), IDENTIFIER_NAME, b.optional(USER, IDENTIFIER_NAME)),
+                    RECYCLEBIN,
+                    DBA_RECYCLEBIN),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-PFILE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-SPFILE.html
+        private fun createParameterFile(b: PlSqlGrammarBuilder) {
+            val optionalFilename = b.optional(EQUALS, CHARACTER_LITERAL)
+            // AS COPY is rejected on CREATE PFILE (ORA-03048).
+            b.rule(CREATE_PFILE).define(
+                CREATE, PFILE, optionalFilename,
+                FROM, b.firstOf(b.sequence(SPFILE, optionalFilename), MEMORY),
+                b.optional(SEMICOLON))
+
+            // Oracle 26 parses AS COPY after both FROM PFILE and FROM MEMORY (ORA-01031 vs ORA-00922 for
+            // AS GARBAGE), even though the syntax diagram places it only on the PFILE branch.
+            b.rule(CREATE_SPFILE).define(
+                CREATE, SPFILE, optionalFilename,
+                FROM, b.firstOf(b.sequence(PFILE, optionalFilename), MEMORY),
+                b.optional(AS, COPY),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-RESTORE-POINT.html
+        // Oracle 26 enforces clause order FOR PLUGGABLE DATABASE, AS OF, then PRESERVE or GUARANTEE
+        // (ORA-03048/ORA-03049 otherwise); PRESERVE and GUARANTEE are mutually exclusive and no clause
+        // repeats. Names are unqualified (ORA-03048 for dotted or @dblink). CLEAN without a PDB,
+        // non-scalar AS OF expressions (ORA-38730) and GUARANTEE with AS OF (ORA-38864) fail after parsing.
+        private fun createRestorePoint(b: PlSqlGrammarBuilder) {
+            b.rule(CREATE_RESTORE_POINT).define(
+                CREATE, b.optional(CLEAN), RESTORE, POINT, IDENTIFIER_NAME,
+                b.optional(FOR, PLUGGABLE, DATABASE, IDENTIFIER_NAME),
+                b.optional(AS, OF, b.firstOf(SCN, TIMESTAMP), EXPRESSION),
+                b.optional(b.firstOf(PRESERVE, b.sequence(GUARANTEE, FLASHBACK, DATABASE))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/FLASHBACK-TABLE.html
+        // Oracle 26 parses database links on the flashed-back table (ORA-02021 afterwards) and accepts
+        // TRIGGER as well as TRIGGERS. TO BEFORE DROP takes one table, no trigger clause, and an
+        // unqualified RENAME target (ORA-03048/ORA-03049). The SCN/TIMESTAMP value, including binds and
+        // scalar subqueries, is validated after parsing.
+        private fun createFlashbackTable(b: PlSqlGrammarBuilder) {
+            val triggersClause = b.sequence(b.firstOf(ENABLE, DISABLE), b.firstOf(TRIGGERS, TRIGGER))
+            b.rule(FLASHBACK_TABLE).define(
+                FLASHBACK, TABLE,
+                b.firstOf(
+                    b.sequence(
+                        DmlGrammar.TABLE_REFERENCE, TO, BEFORE, DROP,
+                        b.optional(RENAME, TO, IDENTIFIER_NAME)),
+                    b.sequence(
+                        DmlGrammar.TABLE_REFERENCE, b.zeroOrMore(COMMA, DmlGrammar.TABLE_REFERENCE),
+                        TO,
+                        b.firstOf(
+                            b.sequence(b.firstOf(SCN, TIMESTAMP), EXPRESSION),
+                            b.sequence(RESTORE, POINT, IDENTIFIER_NAME)),
+                        b.optional(triggersClause))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-EDITION.html
+        // Oracle 26 rejects qualified or @dblink edition and parent names during parsing
+        // (ORA-02000/ORA-03048). Parent existence and single-child rules are checked afterwards.
+        private fun createEdition(b: PlSqlGrammarBuilder) {
+            b.rule(CREATE_EDITION).define(
+                CREATE, EDITION, b.optional(IF, NOT, EXISTS), IDENTIFIER_NAME,
+                b.optional(AS, CHILD, OF, IDENTIFIER_NAME),
+                b.optional(SEMICOLON))
+        }
+
+        // Parameter type list shared by operator bindings and indextype operator signatures; Oracle 26
+        // parses both identically. Types are bare names: sizes/modifiers are rejected (ORA-00907), REF
+        // always fails during parsing (ORA-29834), and INTERVAL/NATIONAL are invalid datatypes (ORA-00902).
+        // Unknown names, LONG and LONG RAW parse and are only rejected by later signature checks.
+        private fun operatorType(b: PlSqlGrammarBuilder) = b.firstOf(
+            b.sequence(DOUBLE, PRECISION),
+            b.sequence(LONG, RAW),
+            b.sequence(b.nextNot(b.firstOf(REF, INTERVAL, NATIONAL)), UNIT_NAME))
+
+        private fun operatorParameterTypes(b: PlSqlGrammarBuilder): Any {
+            val type = operatorType(b)
+            return b.sequence(LPARENTHESIS, type, b.zeroOrMore(COMMA, type), RPARENTHESIS)
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-OPERATOR.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-OPERATOR.html
+        private fun createOperator(b: PlSqlGrammarBuilder) {
+            val operatorType = operatorType(b)
+            val parameterTypes = operatorParameterTypes(b)
+
+            // Oracle 26 also accepts WITH COLUMN CONTEXT before ANCILLARY TO (the diagram makes them
+            // exclusive), but not after it (ORA-00922). COMPUTE ANCILLARY DATA requires the index context.
+            val columnContext = b.sequence(WITH, COLUMN, CONTEXT)
+            val implementationClause = b.firstOf(
+                b.sequence(
+                    WITH, INDEX, CONTEXT, COMMA, SCAN, CONTEXT, UNIT_NAME,
+                    b.optional(COMPUTE, ANCILLARY, DATA),
+                    b.optional(columnContext)),
+                b.sequence(
+                    b.optional(columnContext),
+                    ANCILLARY, TO, UNIT_NAME, parameterTypes,
+                    b.zeroOrMore(COMMA, UNIT_NAME, parameterTypes)),
+                columnContext)
+
+            // Standalone, packaged or type-method functions: up to three components (four fail, ORA-00922).
+            val usingFunctionClause = b.sequence(
+                USING, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)))
+
+            // ADD BINDING takes an unparenthesized RETURN type (ORA-00902), unlike its diagram.
+            val binding = b.sequence(
+                parameterTypes, RETURN, operatorType, b.optional(implementationClause), usingFunctionClause)
+
+            // BINDING appears once before the comma-separated list (ORA-00906 when repeated). SHARING
+            // precedes BINDING and accepts DATA as well (ORA-65021 afterwards, ORA-65014 for invalid values).
+            b.rule(CREATE_OPERATOR).define(
+                CREATE,
+                b.firstOf(
+                    b.sequence(OR, REPLACE, OPERATOR),
+                    b.sequence(OPERATOR, b.optional(IF, NOT, EXISTS))),
+                UNIT_NAME,
+                b.optional(SHARING, EQUALS, b.firstOf(METADATA, DATA, NONE)),
+                BINDING, binding, b.zeroOrMore(COMMA, binding),
+                b.optional(SEMICOLON))
+
+            // Exactly one action; ADD BINDING takes a single binding.
+            b.rule(ALTER_OPERATOR).define(
+                ALTER, OPERATOR, b.optional(IF, EXISTS), UNIT_NAME,
+                b.firstOf(
+                    b.sequence(ADD, BINDING, binding),
+                    b.sequence(DROP, BINDING, parameterTypes, b.optional(FORCE)),
+                    COMPILE),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-INDEXTYPE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-INDEXTYPE.html
+        private fun createIndextype(b: PlSqlGrammarBuilder) {
+            val operatorSignature = b.sequence(UNIT_NAME, operatorParameterTypes(b))
+
+            // The indexed type accepts a wider datatype language than operator signatures: INTERVAL and
+            // NATIONAL CHAR parse, while REF, LONG and LONG RAW fail at once (ORA-29892) and sizes are
+            // rejected. The varray type is a [schema.]name and cannot be omitted, despite the diagram.
+            val arrayDmlType = b.firstOf(
+                b.sequence(INTERVAL, b.firstOf(b.sequence(DAY, TO, SECOND), b.sequence(YEAR, TO, MONTH))),
+                b.sequence(NATIONAL, CHAR),
+                b.sequence(DOUBLE, PRECISION),
+                b.sequence(b.nextNot(b.firstOf(REF, LONG, INTERVAL, NATIONAL)), UNIT_NAME))
+            val arrayDmlMapping = b.sequence(LPARENTHESIS, arrayDmlType, COMMA, UNIT_NAME, RPARENTHESIS)
+            // WITH or WITHOUT is required, and WITHOUT takes no mappings (ORA-00922).
+            val arrayDmlClause = b.firstOf(
+                b.sequence(WITH, ARRAY, DML, b.optional(arrayDmlMapping, b.zeroOrMore(COMMA, arrayDmlMapping))),
+                b.sequence(WITHOUT, ARRAY, DML))
+            val localPartition = b.sequence(WITH, LOCAL, b.optional(RANGE_KEYWORD), PARTITION)
+            val storageTables = b.sequence(WITH, b.firstOf(SYSTEM, USER), MANAGED, STORAGE, TABLES)
+
+            // Unlike the diagrams, array DML, local partitioning and storage tables follow USING in any
+            // order, each at most once (ORA-00922 when repeated), and none of them is valid without USING.
+            val usingTypeClause = b.sequence(
+                USING, UNIT_NAME,
+                b.anyOrder(arrayDmlClause, localPartition, storageTables))
+
+            b.rule(CREATE_INDEXTYPE).define(
+                CREATE,
+                b.firstOf(
+                    b.sequence(OR, REPLACE, INDEXTYPE),
+                    b.sequence(INDEXTYPE, b.optional(IF, NOT, EXISTS))),
+                UNIT_NAME,
+                b.optional(SHARING, EQUALS, b.firstOf(METADATA, DATA, NONE)),
+                FOR, operatorSignature, b.zeroOrMore(COMMA, operatorSignature),
+                usingTypeClause,
+                b.optional(SEMICOLON))
+
+            // Every ADD/DROP repeats its keyword and may be followed by one comma, including a trailing one.
+            // ADDs must precede DROPs (ORA-29841), and DROP has no FORCE.
+            val addOperator = b.sequence(ADD, operatorSignature, b.optional(COMMA))
+            val dropOperator = b.sequence(DROP, operatorSignature, b.optional(COMMA))
+            b.rule(ALTER_INDEXTYPE).define(
+                ALTER, INDEXTYPE, b.optional(IF, EXISTS), UNIT_NAME,
+                b.firstOf(
+                    COMPILE,
+                    b.sequence(b.oneOrMore(addOperator), b.zeroOrMore(dropOperator), b.optional(usingTypeClause)),
+                    b.sequence(b.oneOrMore(dropOperator), b.optional(usingTypeClause)),
+                    usingTypeClause),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-INMEMORY-JOIN-GROUP.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-INMEMORY-JOIN-GROUP.html
+        // Oracle 26 accepts one CREATE member and comma-separated ALTER members despite the narrower diagrams.
+        private fun createInmemoryJoinGroup(b: PlSqlGrammarBuilder) {
+            val member = b.sequence(UNIT_NAME, LPARENTHESIS, IDENTIFIER_NAME, RPARENTHESIS)
+            val members = b.sequence(LPARENTHESIS, member, b.zeroOrMore(COMMA, member), RPARENTHESIS)
+
+            b.rule(CREATE_INMEMORY_JOIN_GROUP).define(
+                CREATE, INMEMORY, JOIN, GROUP, b.optional(IF, NOT, EXISTS), UNIT_NAME,
+                members, b.optional(SEMICOLON))
+
+            b.rule(ALTER_INMEMORY_JOIN_GROUP).define(
+                ALTER, INMEMORY, JOIN, GROUP, b.optional(IF, EXISTS), UNIT_NAME,
+                b.firstOf(ADD, REMOVE), members, b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-VIEW.html
+        private fun createAlterView(b: PlSqlGrammarBuilder) {
+            // A view does not accept CHECK constraints, although the shared out-of-line
+            // constraint rule also serves tables. Keep its AST and restrict only this use.
+            val viewConstraint = b.sequence(
+                b.nextNot(b.sequence(b.optional(b.firstOf(CONSTRAINT, CONSTRAINTS), IDENTIFIER_NAME), CHECK)),
+                b.withContext(VIEW_CONSTRAINT_CONTEXT, true, OUT_OF_LINE_CONSTRAINT))
+            val addConstraint = b.sequence(ADD, b.firstOf(
+                b.sequence(LPARENTHESIS, viewConstraint, b.zeroOrMore(COMMA, viewConstraint), RPARENTHESIS),
+                viewConstraint))
+            val columnAnnotations = b.sequence(IDENTIFIER_NAME, ANNOTATIONS_CLAUSE)
+            val modify = b.sequence(MODIFY, b.firstOf(
+                b.sequence(LPARENTHESIS, columnAnnotations, b.zeroOrMore(COMMA, columnAnnotations), RPARENTHESIS),
+                b.sequence(b.firstOf(
+                    b.sequence(CONSTRAINT, IDENTIFIER_NAME),
+                    b.sequence(PRIMARY, KEY)),
+                    b.firstOf(RELY, NORELY))))
+            val drop = b.sequence(DROP, b.firstOf(
+                b.sequence(CONSTRAINT, IDENTIFIER_NAME),
+                b.sequence(PRIMARY, KEY),
+                b.sequence(UNIQUE, ONE_OR_MORE_IDENTIFIERS)))
+            val action = b.firstOf(
+                addConstraint, modify, drop,
+                COMPILE, RECOMPILE,
+                b.sequence(READ, b.firstOf(ONLY, WRITE)),
+                EDITIONABLE, NONEDITIONABLE,
+                ANNOTATIONS_CLAUSE)
+
+            // Oracle 26 accepts repeated COMPILE, toggled EDITIONABLE, repeated ANNOTATIONS,
+            // and mixed ADD/COMPILE/MODIFY actions despite its single-action diagram.
+            b.rule(ALTER_VIEW).define(
+                ALTER, VIEW, b.optional(IF, EXISTS), UNIT_NAME,
+                b.oneOrMore(action), b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-DIMENSION.html
+        // Legacy dimensions: unrelated to ATTRIBUTE DIMENSION apart from the shared words.
+        private fun createDimension(b: PlSqlGrammarBuilder) {
+            val column = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME), b.optional(DOT, IDENTIFIER_NAME))
+            // A single column may drop its parentheses everywhere.
+            fun columns(item: Any) =
+                b.firstOf(b.sequence(LPARENTHESIS, item, b.zeroOrMore(COMMA, item), RPARENTHESIS), item)
+
+            // Level columns need a table qualifier (ORA-30347 for a bare column).
+            val levelColumn = b.sequence(
+                IDENTIFIER_NAME, DOT, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            b.rule(DIMENSION_LEVEL_CLAUSE).define(
+                LEVEL, IDENTIFIER_NAME, IS, columns(levelColumn), b.optional(SKIP, WHEN, NULL))
+
+            // At least one CHILD OF is required (ORA-02000). JOIN KEY columns and repetition are only checked
+            // semantically (ORA-30365/ORA-30344).
+            b.rule(DIMENSION_HIERARCHY_CLAUSE).define(
+                HIERARCHY, IDENTIFIER_NAME, LPARENTHESIS,
+                IDENTIFIER_NAME, b.oneOrMore(CHILD, OF, IDENTIFIER_NAME),
+                b.zeroOrMore(JOIN, KEY, columns(column), REFERENCES, IDENTIFIER_NAME),
+                RPARENTHESIS)
+
+            // `ATTRIBUTE level DETERMINES ...`, or the extended `ATTRIBUTE name {LEVEL level DETERMINES ...}...`.
+            val determines = b.sequence(DETERMINES, columns(column))
+            b.rule(DIMENSION_ATTRIBUTE_CLAUSE).define(
+                ATTRIBUTE, IDENTIFIER_NAME,
+                b.firstOf(determines, b.oneOrMore(LEVEL, IDENTIFIER_NAME, determines)))
+
+            // Levels come first (ORA-03048 for a later LEVEL); hierarchies and attributes then interleave and may
+            // be absent (a levels-only dimension is created). OR REPLACE and IF NOT EXISTS are rejected.
+            b.rule(CREATE_DIMENSION).define(
+                CREATE, DIMENSION, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                b.oneOrMore(DIMENSION_LEVEL_CLAUSE),
+                b.zeroOrMore(b.firstOf(DIMENSION_HIERARCHY_CLAUSE, DIMENSION_ATTRIBUTE_CLAUSE)),
+                b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-DIMENSION.html
+            // ADD reuses the CREATE clauses. ADD and DROP actions cannot be mixed (ORA-30348 at the first action of
+            // the other kind), while COMPILE may appear anywhere and repeat. DROP ATTRIBUTE takes at most one LEVEL
+            // and one COLUMN (ORA-03048 at a second one). IF EXISTS and RENAME are rejected (ORA-11600/ORA-02000).
+            val compile = b.zeroOrMore(COMPILE)
+            val addAction = b.sequence(
+                ADD, b.firstOf(DIMENSION_LEVEL_CLAUSE, DIMENSION_HIERARCHY_CLAUSE, DIMENSION_ATTRIBUTE_CLAUSE))
+            val dropAction = b.sequence(
+                DROP,
+                b.firstOf(
+                    b.sequence(LEVEL, IDENTIFIER_NAME, b.optional(b.firstOf(RESTRICT, CASCADE))),
+                    b.sequence(HIERARCHY, IDENTIFIER_NAME),
+                    b.sequence(
+                        ATTRIBUTE, IDENTIFIER_NAME,
+                        b.optional(LEVEL, IDENTIFIER_NAME, b.optional(COLUMN, column)))))
+            b.rule(ALTER_DIMENSION).define(
+                ALTER, DIMENSION, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                b.firstOf(
+                    b.sequence(compile, b.oneOrMore(addAction, compile)),
+                    b.sequence(compile, b.oneOrMore(dropAction, compile)),
+                    b.oneOrMore(COMPILE)),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-ATTRIBUTE-DIMENSION.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-HIERARCHY.html
+        private fun createAttributeDimension(b: PlSqlGrammarBuilder) {
+            val schemaName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val attribute = IDENTIFIER_NAME
+            val attributeList = b.sequence(LPARENTHESIS, attribute, b.zeroOrMore(COMMA, attribute), RPARENTHESIS)
+            val header = b.sequence(
+                CREATE, b.optional(OR, REPLACE), b.optional(b.firstOf(FORCE, NOFORCE)))
+            val sharing = b.optional(SHARING, EQUALS, b.firstOf(METADATA, NONE))
+
+            val classification = b.sequence(
+                CLASSIFICATION, IDENTIFIER_NAME,
+                b.optional(VALUE, CHARACTER_LITERAL), b.optional(LANGUAGE, CHARACTER_LITERAL))
+
+            // Shared by both statements. The parts keep this order (ORA-02000 for DESCRIPTION before CAPTION or
+            // LANGUAGE before VALUE), and every value is a string literal (ORA-01780).
+            b.rule(AV_CLASSIFICATION_CLAUSE).define(
+                b.firstOf(
+                    b.sequence(
+                        CAPTION, CHARACTER_LITERAL, b.optional(DESCRIPTION, CHARACTER_LITERAL),
+                        b.zeroOrMore(classification)),
+                    b.sequence(DESCRIPTION, CHARACTER_LITERAL, b.zeroOrMore(classification)),
+                    b.oneOrMore(classification)))
+
+            // Tables with an optional alias, joined only by `col = col` equalities (ORA-02000 for other operators);
+            // Oracle 26 rejects a parenthesized source despite the diagram (ORA-00931).
+            val column = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val source = b.sequence(
+                schemaName, b.optional("REMOTE"),
+                b.optional(b.optional(AS), b.nextNot(b.firstOf(ATTRIBUTES, JOIN)), IDENTIFIER_NAME))
+            val usingClause = b.sequence(
+                USING, source, b.zeroOrMore(COMMA, source),
+                b.zeroOrMore(
+                    JOIN, PATH, IDENTIFIER_NAME, ON,
+                    column, EQUALS, column, b.zeroOrMore(AND, column, EQUALS, column)))
+
+            val attributeItem = b.sequence(
+                column, b.optional(b.optional(AS), b.nextNot(b.firstOf(CAPTION, DESCRIPTION, CLASSIFICATION)), IDENTIFIER_NAME),
+                b.optional(AV_CLASSIFICATION_CLAUSE))
+
+            // Member values are value expressions: a full condition would read `b MEMBER CAPTION` as a
+            // `MEMBER [OF]` membership test.
+            val memberValue = PlSqlGrammar.CONCATENATION_EXPRESSION
+
+            val orderItem = b.sequence(
+                b.optional(b.firstOf(MIN, MAX)), attribute, b.optional(b.firstOf(ASC, DESC)),
+                b.optional(NULLS, b.firstOf(FIRST, LAST)))
+
+            // Every part keeps this order (ORA-02000/ORA-03048/ORA-03049 otherwise), and KEY is required.
+            b.rule(ATTRIBUTE_DIMENSION_LEVEL_CLAUSE).define(
+                LEVEL, IDENTIFIER_NAME,
+                b.optional(b.firstOf(b.sequence(NOT, NULL), b.sequence(SKIP, WHEN, NULL))),
+                b.optional(
+                    LEVEL, TYPE,
+                    b.firstOf(STANDARD, YEARS, HALF_YEARS, QUARTERS, MONTHS, WEEKS, DAYS, HOURS, MINUTES, SECONDS)),
+                b.optional(AV_CLASSIFICATION_CLAUSE),
+                KEY, b.firstOf(attributeList, attribute),
+                b.optional(ALTERNATE, KEY, b.firstOf(attributeList, attribute)),
+                b.optional(MEMBER, NAME, memberValue),
+                b.optional(MEMBER, CAPTION, memberValue),
+                b.optional(MEMBER, DESCRIPTION, memberValue),
+                b.optional(ORDER, BY, orderItem, b.zeroOrMore(COMMA, orderItem)),
+                b.optional(DETERMINES, attributeList))
+
+            // At least one level is required, also before ALL MEMBER (ORA-02000).
+            b.rule(CREATE_ATTRIBUTE_DIMENSION).define(
+                header, ATTRIBUTE, DIMENSION, b.optional(IF, NOT, EXISTS), schemaName, sharing,
+                b.optional(AV_CLASSIFICATION_CLAUSE),
+                b.optional(DIMENSION, TYPE, b.firstOf(STANDARD, TIME)),
+                usingClause,
+                ATTRIBUTES, LPARENTHESIS, attributeItem, b.zeroOrMore(COMMA, attributeItem), RPARENTHESIS,
+                b.oneOrMore(ATTRIBUTE_DIMENSION_LEVEL_CLAUSE),
+                b.optional(
+                    ALL, MEMBER,
+                    b.firstOf(
+                        b.sequence(
+                            NAME, memberValue,
+                            b.optional(MEMBER, CAPTION, memberValue), b.optional(MEMBER, DESCRIPTION, memberValue)),
+                        b.sequence(CAPTION, memberValue, b.optional(MEMBER, DESCRIPTION, memberValue)),
+                        b.sequence(DESCRIPTION, memberValue))),
+                b.optional(SEMICOLON))
+
+            // Levels form a parenthesized CHILD OF chain (ORA-02000 for a comma or a missing OF). Hierarchical
+            // attribute names are checked semantically, so any name parses.
+            b.rule(CREATE_HIERARCHY).define(
+                header, HIERARCHY, b.optional(IF, NOT, EXISTS), schemaName, sharing,
+                b.optional(AV_CLASSIFICATION_CLAUSE),
+                USING, schemaName,
+                LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(CHILD, OF, IDENTIFIER_NAME), RPARENTHESIS,
+                b.optional(
+                    HIERARCHICAL, ATTRIBUTES, LPARENTHESIS,
+                    IDENTIFIER_NAME, b.optional(AV_CLASSIFICATION_CLAUSE),
+                    b.zeroOrMore(COMMA, IDENTIFIER_NAME, b.optional(AV_CLASSIFICATION_CLAUSE)),
+                    RPARENTHESIS),
+                b.optional(SEMICOLON))
+
+            // Analytic view objects share the same header and action set: one action, the new name cannot be
+            // schema-qualified (ORA-03048 at the dot), and COMPILE takes no options (ORA-03049).
+            val renameOrCompile = b.firstOf(b.sequence(RENAME, TO, IDENTIFIER_NAME), COMPILE)
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-ATTRIBUTE-DIMENSION.html
+            b.rule(ALTER_ATTRIBUTE_DIMENSION).define(
+                ALTER, ATTRIBUTE, DIMENSION, b.optional(IF, EXISTS), schemaName,
+                renameOrCompile,
+                b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-HIERARCHY.html
+            b.rule(ALTER_HIERARCHY).define(
+                ALTER, HIERARCHY, b.optional(IF, EXISTS), schemaName,
+                renameOrCompile,
+                b.optional(SEMICOLON))
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-ANALYTIC-VIEW.html
+            // The cache clause diagrams are empty in the Oracle 26 reference; this follows runtime behavior.
+            // Exactly one cache specification: MEASURE GROUP and LEVELS are both required, in that order.
+            // Measures are unqualified and at least one is needed (ORA-00931); ALL is not valid inside the
+            // list. Levels take up to dim.hier.level (ORA-02000 for four parts) and may be empty. Unlike
+            // CREATE ANALYTIC VIEW, level specifications are not individually parenthesized (ORA-00931).
+            val levelName = b.sequence(
+                IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)))
+            val cacheSpecification = b.sequence(
+                MEASURE, GROUP,
+                b.firstOf(
+                    ALL,
+                    b.sequence(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS)),
+                LEVELS, LPARENTHESIS, b.optional(levelName, b.zeroOrMore(COMMA, levelName)), RPARENTHESIS)
+            // ADD requires MATERIALIZED (ORA-02000, even for the documented example without it) and may name
+            // the backing table; DROP accepts neither (ORA-03049).
+            b.rule(ALTER_ANALYTIC_VIEW).define(
+                ALTER, ANALYTIC, VIEW, b.optional(IF, EXISTS), schemaName,
+                b.firstOf(
+                    renameOrCompile,
+                    b.sequence(
+                        ADD, CACHE, cacheSpecification,
+                        MATERIALIZED, b.optional(USING, schemaName)),
+                    b.sequence(DROP, CACHE, cacheSpecification)),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-MATERIALIZED-ZONEMAP.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-MATERIALIZED-ZONEMAP.html
+        private fun createZonemap(b: PlSqlGrammarBuilder) {
+            val schemaName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val cacheClause = b.firstOf(CACHE, NOCACHE)
+            val pruningClause = b.sequence(b.firstOf(ENABLE, DISABLE), PRUNING)
+
+            // Unlike the materialized view refresh clause, this one has LOAD / DATA MOVEMENT triggers and no
+            // START WITH / NEXT. A bare REFRESH fails with ORA-00905, so a method or an ON trigger is required.
+            val refreshTrigger = b.sequence(
+                ON,
+                b.firstOf(DEMAND, COMMIT, b.sequence(LOAD, b.optional(DATA, MOVEMENT)), b.sequence(DATA, MOVEMENT)))
+            b.rule(ZONEMAP_REFRESH_CLAUSE).define(
+                REFRESH,
+                b.firstOf(
+                    b.sequence(b.firstOf(FAST, COMPLETE, FORCE), b.optional(refreshTrigger)),
+                    refreshTrigger))
+
+            // The attributes, refresh and pruning clauses keep this order (ORA-02000 otherwise). Repeated
+            // attributes fail after parsing (ORA-12814/ORA-12990) and are not tracked. The AS query is a single
+            // query block, optionally with a WITH clause: ORDER BY fails with ORA-00922 and set operators with
+            // ORA-31956.
+            b.rule(CREATE_MATERIALIZED_ZONEMAP).define(
+                CREATE, MATERIALIZED, ZONEMAP, b.optional(IF, NOT, EXISTS), schemaName,
+                b.zeroOrMore(b.firstOf(b.sequence(TABLESPACE, IDENTIFIER_NAME), b.sequence(SCALE, INTEGER_LITERAL), cacheClause)),
+                b.optional(ZONEMAP_REFRESH_CLAUSE),
+                b.optional(pruningClause),
+                b.firstOf(
+                    b.sequence(
+                        ON, schemaName,
+                        LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS),
+                    b.sequence(AS, b.optional(DmlGrammar.WITH_CLAUSE), DmlGrammar.QUERY_BLOCK)),
+                b.optional(SEMICOLON))
+
+            // A single action per statement (ORA-00922 for `COMPILE REBUILD`); only the attributes repeat.
+            b.rule(ALTER_MATERIALIZED_ZONEMAP).define(
+                ALTER, MATERIALIZED, ZONEMAP, b.optional(IF, EXISTS), schemaName,
+                b.firstOf(
+                    b.oneOrMore(b.firstOf(
+                        b.sequence(PCTFREE, INTEGER_LITERAL), b.sequence(PCTUSED, INTEGER_LITERAL), cacheClause)),
+                    ZONEMAP_REFRESH_CLAUSE,
+                    pruningClause,
+                    COMPILE,
+                    REBUILD,
+                    UNUSABLE),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/create-assertion.html
+        private fun createAssertion(b: PlSqlGrammarBuilder) {
+            // ALL ... SATISFY exists only here: Oracle 26 rejects it in WHERE, CASE, after NOT and inside SATISFY
+            // (ORA-00936). The alias is optional and may follow AS.
+            b.rule(ASSERTION_UNIVERSAL_EXPRESSION).define(
+                ALL, LPARENTHESIS, DmlGrammar.SELECT_EXPRESSION, RPARENTHESIS,
+                b.optional(b.optional(AS), b.nextNot(SATISFY), IDENTIFIER_NAME),
+                SATISFY, LPARENTHESIS, EXPRESSION, RPARENTHESIS)
+
+            // The existential form is a condition that must start with [NOT] EXISTS or a parenthesis (`1 = 1`
+            // fails, `EXISTS (...) AND 1 = 1` parses). The universal form can only be parenthesized, not combined.
+            b.rule(ASSERTION_CONDITION).define(
+                b.firstOf(
+                    ASSERTION_UNIVERSAL_EXPRESSION,
+                    b.sequence(b.next(b.firstOf(NOT, EXISTS, LPARENTHESIS)), EXPRESSION),
+                    b.sequence(LPARENTHESIS, ASSERTION_CONDITION, RPARENTHESIS)))
+
+            // Unlike table constraints, RELY, USING INDEX and EXCEPTIONS are rejected here (ORA-00911), and the
+            // states may come in any order.
+            val assertionState = b.firstOf(
+                b.sequence(b.optional(NOT), DEFERRABLE),
+                b.sequence(INITIALLY, b.firstOf(DEFERRED, IMMEDIATE)),
+                ENABLE, DISABLE, VALIDATE, NOVALIDATE)
+
+            b.rule(CREATE_ASSERTION).define(
+                CREATE, ASSERTION, b.optional(IF, NOT, EXISTS), IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME),
+                CHECK, LPARENTHESIS, ASSERTION_CONDITION, RPARENTHESIS,
+                b.zeroOrMore(assertionState),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/AUDIT-Unified-Auditing.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/NOAUDIT-Unified-Auditing.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/NOAUDIT-Traditional-Auditing.html
+        private fun createAudit(b: PlSqlGrammarBuilder) {
+            val name = DclGrammar.IDENTIFIER_OR_KEYWORD
+            val users = b.sequence(name, b.zeroOrMore(COMMA, name))
+            val whenever = b.sequence(WHENEVER, b.optional(NOT), SUCCESSFUL)
+
+            // Shared by AUDIT and NOAUDIT: Oracle 26 also accepts EXCEPT and WHENEVER in NOAUDIT POLICY, which its
+            // diagram omits. The policy name cannot be schema-qualified (ORA-03048 at the dot).
+            b.rule(AUDIT_POLICY_CLAUSE).define(
+                POLICY, IDENTIFIER_NAME,
+                b.optional(b.firstOf(
+                    b.sequence(BY, USERS, WITH, GRANTED, AUDIT_ROLE_CLAUSE),
+                    b.sequence(BY, users),
+                    b.sequence(EXCEPT, users))),
+                b.optional(whenever))
+
+            // WHENEVER and role lists are rejected here in both statements (ORA-03048), unlike the NOAUDIT diagram.
+            val namespace = b.sequence(
+                CONTEXT, NAMESPACE, name,
+                ATTRIBUTES, name, b.zeroOrMore(COMMA, b.nextNot(CONTEXT), name))
+            b.rule(AUDIT_CONTEXT_CLAUSE).define(
+                namespace, b.zeroOrMore(COMMA, namespace), b.optional(BY, users))
+
+            b.rule(AUDIT_STATEMENT).define(
+                AUDIT, b.firstOf(AUDIT_POLICY_CLAUSE, AUDIT_CONTEXT_CLAUSE), b.optional(SEMICOLON))
+
+            // Traditional auditing: each option is a run of words such as SELECT TABLE, DELETE ANY TABLE, ROLE,
+            // ALL STATEMENTS or DIRECT_PATH LOAD. Oracle 26 rejects BY after ON object (ORA-01708/ORA-01718).
+            // Traditional AUDIT itself is desupported (ORA-46401 at its first option), so only NOAUDIT has it.
+            val operation = b.oneOrMore(b.nextNot(b.firstOf(ON, BY, WHENEVER, CONTAINER)), name)
+            val schemaObjectName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val traditional = b.sequence(
+                operation, b.zeroOrMore(COMMA, operation),
+                b.firstOf(
+                    b.sequence(
+                        ON,
+                        b.firstOf(
+                            b.sequence(DIRECTORY, IDENTIFIER_NAME),
+                            b.sequence(MINING, MODEL, schemaObjectName),
+                            b.sequence(SQL, TRANSLATION, PROFILE, schemaObjectName),
+                            DEFAULT,
+                            schemaObjectName)),
+                    b.optional(BY, users)),
+                b.optional(whenever),
+                b.optional(CONTAINER, EQUALS, b.firstOf(CURRENT, ALL)))
+
+            b.rule(NOAUDIT_STATEMENT).define(
+                NOAUDIT, b.firstOf(AUDIT_POLICY_CLAUSE, AUDIT_CONTEXT_CLAUSE, traditional), b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ANALYZE.html
+        private fun createAnalyze(b: PlSqlGrammarBuilder) {
+            val objectName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val intoClause = b.sequence(INTO, objectName)
+
+            // Oracle 26 rejects the FOR forms of the partition extension here (ORA-00906 at FOR), and any
+            // partition after a cluster name (ORA-14052).
+            val target = b.firstOf(
+                b.sequence(
+                    b.firstOf(TABLE, INDEX), objectName,
+                    b.optional(b.firstOf(PARTITION, SUBPARTITION), LPARENTHESIS, IDENTIFIER_NAME, RPARENTHESIS)),
+                b.sequence(CLUSTER, objectName))
+
+            // The diagram requires FAST or COMPLETE after CASCADE and ties ONLINE/OFFLINE to COMPLETE, but Oracle 26
+            // parses a bare CASCADE and ONLINE/OFFLINE without CASCADE. CASCADE FAST ends the clause (ORA-03048).
+            val validateStructure = b.sequence(
+                STRUCTURE,
+                b.firstOf(
+                    b.sequence(CASCADE, FAST),
+                    b.sequence(
+                        b.optional(CASCADE, b.optional(COMPLETE)),
+                        b.optional(b.firstOf(ONLINE, OFFLINE)),
+                        b.optional(intoClause))))
+
+            // LIST CHAINED ROWS on an index fails at parse time (ORA-01492), but is not singled out here.
+            b.rule(ANALYZE_STATEMENT).define(
+                ANALYZE, target,
+                b.firstOf(
+                    b.sequence(
+                        VALIDATE,
+                        b.firstOf(b.sequence(REF, UPDATE, b.optional(SET, DANGLING, TO, NULL)), validateStructure)),
+                    b.sequence(LIST, CHAINED, ROWS, b.optional(intoClause)),
+                    b.sequence(DELETE, b.optional(SYSTEM), STATISTICS)),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-CLUSTER.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-CLUSTER.html
+        private fun createCluster(b: PlSqlGrammarBuilder) {
+            val clusterName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val clusterColumn = b.sequence(
+                IDENTIFIER_NAME, DATATYPE, b.optional(COLLATE, IDENTIFIER_NAME), b.optional(SORT))
+            val cacheClause = b.firstOf(CACHE, NOCACHE)
+
+            // Oracle 26 accepts these options in any order, including the parallel, row dependency and cache
+            // clauses the diagram places last, and HASH IS before HASHKEYS. Repeats and INDEX with HASHKEYS fail
+            // later (ORA-02228/ORA-02464) and are not tracked. SHARING is rejected at parse time (ORA-00922).
+            val createOption = b.firstOf(
+                PHYSICAL_ATRIBUTES_CLAUSE,
+                b.sequence(SIZE, INDEX_SIZE_CLAUSE),
+                b.sequence(TABLESPACE, IDENTIFIER_NAME),
+                INDEX,
+                b.sequence(SINGLE, TABLE),
+                b.sequence(HASHKEYS, INTEGER_LITERAL),
+                b.sequence(PlSqlKeyword.HASH, IS, EXPRESSION),
+                INDEX_PARALLEL_CLAUSE,
+                b.firstOf(ROWDEPENDENCIES, NOROWDEPENDENCIES),
+                cacheClause)
+
+            b.rule(CREATE_CLUSTER).define(
+                CREATE, CLUSTER, b.optional(IF, NOT, EXISTS), clusterName,
+                LPARENTHESIS, clusterColumn, b.zeroOrMore(COMMA, clusterColumn), RPARENTHESIS,
+                b.zeroOrMore(createOption),
+                b.optional(PARTITION_BY_RANGE),
+                b.optional(SEMICOLON))
+
+            // The parallel clause may also appear between the other options (ORA-02144 without any option).
+            b.rule(ALTER_CLUSTER).define(
+                ALTER, CLUSTER, b.optional(IF, EXISTS), clusterName,
+                b.oneOrMore(b.firstOf(
+                    PHYSICAL_ATRIBUTES_CLAUSE,
+                    b.sequence(SIZE, INDEX_SIZE_CLAUSE),
+                    b.sequence(b.optional(MODIFY, PARTITION, IDENTIFIER_NAME), INDEX_ALLOCATE_EXTENT_CLAUSE),
+                    INDEX_DEALLOCATE_UNUSED_CLAUSE,
+                    cacheClause,
+                    INDEX_PARALLEL_CLAUSE)),
+                b.optional(SEMICOLON))
+
+            // A clustered table rejects TABLESPACE, CACHE, PARALLEL and partitioning afterwards
+            // (ORA-01771/ORA-14026) but keeps its column properties such as LOB storage.
+            b.rule(TABLE_CLUSTER_CLAUSE).define(
+                CLUSTER, clusterName, LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS)
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-ROLLBACK-SEGMENT.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-ROLLBACK-SEGMENT.html
+        private fun createRollbackSegment(b: PlSqlGrammarBuilder) {
+            // TABLESPACE and STORAGE may come in any order; a second TABLESPACE fails with ORA-02215, which is
+            // not tracked.
+            b.rule(CREATE_ROLLBACK_SEGMENT).define(
+                CREATE, b.optional(PUBLIC), ROLLBACK, SEGMENT, IDENTIFIER_NAME,
+                b.zeroOrMore(b.firstOf(b.sequence(TABLESPACE, IDENTIFIER_NAME), INDEX_STORAGE_CLAUSE)),
+                b.optional(SEMICOLON))
+
+            // Oracle 26 accepts a single option (ORA-03049 at a second one) and also parses the undocumented
+            // ALTER PUBLIC ROLLBACK SEGMENT.
+            b.rule(ALTER_ROLLBACK_SEGMENT).define(
+                ALTER, b.optional(PUBLIC), ROLLBACK, SEGMENT, IDENTIFIER_NAME,
+                b.firstOf(
+                    ONLINE,
+                    OFFLINE,
+                    INDEX_STORAGE_CLAUSE,
+                    b.sequence(SHRINK, b.optional(TO, INDEX_SIZE_CLAUSE))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-ROLE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-ROLE.html
+        private fun createRole(b: PlSqlGrammarBuilder) {
+            // Unlike USER_AUTHENTICATION_CLAUSE there is no NO AUTHENTICATION, AND FACTOR, DIGEST or
+            // EXTERNALLY AS here (ORA-00922), so the user rule is not reused.
+            b.rule(ROLE_IDENTIFICATION_CLAUSE).define(
+                b.firstOf(
+                    b.sequence(NOT, IDENTIFIED),
+                    b.sequence(
+                        IDENTIFIED,
+                        b.firstOf(
+                            b.sequence(BY, IDENTIFIER_NAME),
+                            b.sequence(USING, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)),
+                            EXTERNALLY,
+                            b.sequence(GLOBALLY, b.optional(AS, CHARACTER_LITERAL))))))
+
+            // Oracle 26 accepts CONTAINER before or after the identification clause. A second clause of
+            // either kind fails after parsing (ORA-01944/ORA-65022), so repeats are not tracked.
+            val roleOption = b.firstOf(ROLE_IDENTIFICATION_CLAUSE, b.sequence(CONTAINER, EQUALS, b.firstOf(CURRENT, ALL)))
+
+            b.rule(CREATE_ROLE).define(
+                CREATE, ROLE, b.optional(IF, NOT, EXISTS), IDENTIFIER_NAME, b.zeroOrMore(roleOption),
+                b.optional(SEMICOLON))
+
+            b.rule(ALTER_ROLE).define(
+                ALTER, ROLE, b.optional(IF, EXISTS), IDENTIFIER_NAME, b.oneOrMore(roleOption),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-TABLESPACE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-TABLESPACE.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/file_specification.html
+        private fun createTablespace(b: PlSqlGrammarBuilder) {
+            val fileNameOrNumber = b.firstOf(CHARACTER_LITERAL, INTEGER_LITERAL)
+            val keepSize = b.optional(KEEP, INDEX_SIZE_CLAUSE)
+
+            // Oracle 26 keeps these parts in the documented order (ORA-02180 for REUSE before SIZE, or NEXT after
+            // MAXSIZE). The file name is optional for Oracle Managed Files.
+            b.rule(AUTOEXTEND_CLAUSE).define(
+                AUTOEXTEND,
+                b.firstOf(
+                    OFF,
+                    b.sequence(
+                        ON,
+                        b.optional(NEXT, INDEX_SIZE_CLAUSE),
+                        b.optional(MAXSIZE, b.firstOf(UNLIMITED, INDEX_SIZE_CLAUSE)))))
+
+            b.rule(DATAFILE_TEMPFILE_SPEC).define(
+                b.optional(CHARACTER_LITERAL),
+                b.optional(SIZE, INDEX_SIZE_CLAUSE),
+                b.optional(REUSE),
+                b.optional(AUTOEXTEND_CLAUSE))
+
+            val fileSpecifications = b.sequence(DATAFILE_TEMPFILE_SPEC, b.zeroOrMore(COMMA, DATAFILE_TEMPFILE_SPEC))
+
+            // Oracle 26 also parses EXTENT MANAGEMENT DICTIONARY, which the diagram omits.
+            b.rule(EXTENT_MANAGEMENT_CLAUSE).define(
+                EXTENT, MANAGEMENT,
+                b.firstOf(
+                    b.sequence(LOCAL, b.optional(b.firstOf(
+                        AUTOALLOCATE,
+                        b.sequence(UNIFORM, b.optional(SIZE, INDEX_SIZE_CLAUSE))))),
+                    DICTIONARY))
+
+            // Oracle 26 accepts the encryption spec without MODE, and a bare ENCRYPTION.
+            val encryptionSpec = b.sequence(USING, CHARACTER_LITERAL, b.optional(MODE, CHARACTER_LITERAL))
+
+            b.rule(TABLESPACE_ENCRYPTION_CLAUSE).define(
+                ENCRYPTION, b.optional(encryptionSpec), b.optional(b.firstOf(ENCRYPT, DECRYPT)))
+
+            // The TABLE keyword is optional: Oracle 26 still accepts `DEFAULT COMPRESS FOR OLTP`.
+            val tableCompression = b.sequence(
+                b.optional(TABLE),
+                b.firstOf(
+                    b.sequence(COMPRESS, b.optional(FOR, b.firstOf(
+                        OLTP,
+                        b.sequence(b.firstOf(QUERY, ARCHIVE), b.firstOf(LOW, HIGH))))),
+                    NOCOMPRESS))
+
+            // STORAGE must come last (ORA-02180 for `DEFAULT STORAGE (...) TABLE ...`).
+            b.rule(DEFAULT_TABLESPACE_PARAMS).define(
+                DEFAULT,
+                b.firstOf(
+                    b.sequence(
+                        b.oneOrMore(b.firstOf(b.sequence(INDEX, INDEX_COMPRESSION_CLAUSE), tableCompression)),
+                        b.optional(INDEX_STORAGE_CLAUSE)),
+                    INDEX_STORAGE_CLAUSE))
+
+            val retentionClause = b.sequence(RETENTION, b.firstOf(GUARANTEE, NOGUARANTEE))
+            val groupClause = b.sequence(TABLESPACE, GROUP, b.firstOf(CHARACTER_LITERAL, IDENTIFIER_NAME))
+            val flashbackClause = b.sequence(FLASHBACK, b.firstOf(ON, OFF))
+            val shardspace = b.sequence(IN, SHARDSPACE, IDENTIFIER_NAME)
+
+            // Each kind of tablespace has its own option set; Oracle 26 rejects the others at parse time
+            // (ORA-30044, ORA-30024, ORA-25139). Repeated options are rejected too (ORA-02197/ORA-02198), but are
+            // not tracked here.
+            val permanentOption = b.firstOf(
+                b.sequence(DATAFILE, fileSpecifications),
+                b.sequence(MINIMUM, EXTENT, INDEX_SIZE_CLAUSE),
+                b.sequence(BLOCKSIZE, INTEGER_LITERAL, b.optional("K")),
+                LOGGING_CLAUSE,
+                b.sequence(FORCE, LOGGING),
+                TABLESPACE_ENCRYPTION_CLAUSE,
+                DEFAULT_TABLESPACE_PARAMS,
+                ONLINE,
+                OFFLINE,
+                EXTENT_MANAGEMENT_CLAUSE,
+                b.sequence(SEGMENT, SPACE, MANAGEMENT, b.firstOf(AUTO, MANUAL)),
+                flashbackClause,
+                shardspace)
+            val undoOption = b.firstOf(
+                b.sequence(DATAFILE, fileSpecifications),
+                EXTENT_MANAGEMENT_CLAUSE,
+                retentionClause,
+                TABLESPACE_ENCRYPTION_CLAUSE)
+            val temporaryOption = b.firstOf(
+                b.sequence(TEMPFILE, fileSpecifications),
+                groupClause,
+                EXTENT_MANAGEMENT_CLAUSE,
+                TABLESPACE_ENCRYPTION_CLAUSE)
+            val nameClause = b.sequence(b.optional(IF, NOT, EXISTS), IDENTIFIER_NAME)
+
+            b.rule(CREATE_TABLESPACE).define(
+                CREATE,
+                b.optional(b.firstOf(BIGFILE, SMALLFILE)),
+                b.firstOf(
+                    b.sequence(UNDO, TABLESPACE, nameClause, b.zeroOrMore(undoOption)),
+                    b.sequence(
+                        b.firstOf(
+                            b.sequence(TEMPORARY, TABLESPACE),
+                            b.sequence(LOCAL, TEMPORARY, TABLESPACE, FOR, b.firstOf(ALL, LEAF))),
+                        nameClause,
+                        b.zeroOrMore(temporaryOption)),
+                    // Only a bare LOST WRITE PROTECTION is accepted, after every other option except
+                    // IN SHARDSPACE (ORA-65480 for an option after it, ORA-02180 for ENABLE).
+                    b.sequence(
+                        TABLESPACE, b.nextNot(SET), nameClause,
+                        b.zeroOrMore(permanentOption),
+                        b.optional(LOST, WRITE, PROTECTION),
+                        b.optional(shardspace))),
+                b.optional(SEMICOLON))
+
+            val fileNameConvert = b.sequence(
+                FILE_NAME_CONVERT, EQUALS,
+                LPARENTHESIS,
+                CHARACTER_LITERAL, COMMA, CHARACTER_LITERAL,
+                b.zeroOrMore(COMMA, CHARACTER_LITERAL, COMMA, CHARACTER_LITERAL),
+                RPARENTHESIS,
+                b.optional(KEEP))
+            val alterEncryption = b.sequence(
+                ENCRYPTION,
+                b.firstOf(
+                    b.sequence(
+                        ONLINE,
+                        b.firstOf(b.sequence(b.optional(encryptionSpec), b.firstOf(ENCRYPT, REKEY)), DECRYPT),
+                        b.optional(fileNameConvert)),
+                    b.sequence(FINISH, b.firstOf(ENCRYPT, REKEY, DECRYPT), b.optional(fileNameConvert)),
+                    b.sequence(OFFLINE, b.optional(encryptionSpec), b.firstOf(ENCRYPT, DECRYPT)),
+                    b.sequence(b.optional(encryptionSpec), b.firstOf(ENCRYPT, DECRYPT))))
+
+            // Oracle 26 accepts a single attribute per statement (ORA-03049 at a second one), and requires
+            // ENABLE, REMOVE or SUSPEND before LOST WRITE PROTECTION here (ORA-02142).
+            val alterAttribute = b.firstOf(
+                DEFAULT_TABLESPACE_PARAMS,
+                b.sequence(MINIMUM, EXTENT, INDEX_SIZE_CLAUSE),
+                b.sequence(RESIZE, INDEX_SIZE_CLAUSE),
+                COALESCE,
+                b.sequence(SHRINK, SPACE, keepSize),
+                b.sequence(SHRINK, TEMPFILE, fileNameOrNumber, keepSize),
+                b.sequence(RENAME, TO, IDENTIFIER_NAME),
+                b.sequence(
+                    RENAME, DATAFILE,
+                    CHARACTER_LITERAL, b.zeroOrMore(COMMA, CHARACTER_LITERAL),
+                    TO, CHARACTER_LITERAL, b.zeroOrMore(COMMA, CHARACTER_LITERAL)),
+                b.sequence(b.firstOf(BEGIN, END), BACKUP),
+                b.sequence(ADD, b.firstOf(DATAFILE, TEMPFILE), fileSpecifications),
+                b.sequence(DROP, b.firstOf(DATAFILE, TEMPFILE), fileNameOrNumber),
+                b.sequence(b.firstOf(DATAFILE, TEMPFILE), b.firstOf(ONLINE, OFFLINE)),
+                LOGGING_CLAUSE,
+                b.sequence(b.optional(NO), FORCE, LOGGING),
+                groupClause,
+                ONLINE,
+                b.sequence(OFFLINE, b.optional(b.firstOf(NORMAL, TEMPORARY, IMMEDIATE))),
+                b.sequence(READ, b.firstOf(ONLY, WRITE)),
+                PERMANENT,
+                TEMPORARY,
+                AUTOEXTEND_CLAUSE,
+                flashbackClause,
+                retentionClause,
+                alterEncryption,
+                b.sequence(b.firstOf(ENABLE, REMOVE, SUSPEND), LOST, WRITE, PROTECTION))
+
+            b.rule(ALTER_TABLESPACE).define(
+                ALTER, TABLESPACE, b.nextNot(SET), b.optional(IF, EXISTS), IDENTIFIER_NAME, alterAttribute,
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/CREATE-USER.html
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-USER.html
+        private fun createUser(b: PlSqlGrammarBuilder) {
+            // Oracle 26 rejects a literal password (ORA-00988) and a quoted-identifier external name
+            // (ORA-28025); only the documented forms are modeled.
+            val externallyOrGlobally = b.firstOf(
+                b.sequence(
+                    EXTERNALLY,
+                    b.optional(AS, CHARACTER_LITERAL, b.optional(WITH, THUMBPRINT, CHARACTER_LITERAL))),
+                b.sequence(GLOBALLY, b.optional(AS, CHARACTER_LITERAL)))
+            val digest = b.sequence(b.optional(HTTP), DIGEST, b.firstOf(ENABLE, DISABLE))
+
+            b.rule(USER_AUTHENTICATION_CLAUSE).define(
+                b.firstOf(
+                    b.sequence(
+                        IDENTIFIED,
+                        b.firstOf(
+                            b.sequence(
+                                BY, IDENTIFIER_NAME,
+                                b.optional(digest),
+                                b.optional(AND, FACTOR, CHARACTER_LITERAL, AS, CHARACTER_LITERAL)),
+                            externallyOrGlobally)),
+                    b.sequence(NO, AUTHENTICATION)))
+
+            val nameOrKeyword = DclGrammar.IDENTIFIER_OR_KEYWORD
+            fun roleList() = b.sequence(nameOrKeyword, b.zeroOrMore(COMMA, nameOrKeyword))
+
+            val sharedOptions = arrayOf<Any>(
+                b.sequence(DEFAULT, COLLATION, IDENTIFIER_NAME),
+                b.sequence(DEFAULT, TABLESPACE, IDENTIFIER_NAME),
+                b.sequence(b.optional(LOCAL), TEMPORARY, TABLESPACE, IDENTIFIER_NAME),
+                b.sequence(QUOTA, b.firstOf(UNLIMITED, INDEX_SIZE_CLAUSE), ON, IDENTIFIER_NAME),
+                b.sequence(PROFILE, b.firstOf(DEFAULT, IDENTIFIER_NAME)),
+                b.sequence(PASSWORD, EXPIRE),
+                b.sequence(ACCOUNT, b.firstOf(LOCK, UNLOCK)),
+                b.sequence(CONTAINER, EQUALS, b.firstOf(CURRENT, ALL)),
+                b.sequence(READ, b.firstOf(ONLY, WRITE)))
+
+            // Oracle 26 accepts the options in any order. Repeats of most of them are rejected, but tracking
+            // that per option makes the compiled grammar grow factorially, so the parser accepts them.
+            b.rule(CREATE_USER).define(
+                CREATE, USER, b.optional(IF, NOT, EXISTS), IDENTIFIER_NAME,
+                b.zeroOrMore(b.firstOf(USER_AUTHENTICATION_CLAUSE, b.sequence(ENABLE, EDITIONS), *sharedOptions)),
+                b.optional(SEMICOLON))
+
+            val nameList = b.sequence(LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS)
+            val alterUserOption = b.firstOf(
+                // ALTER has REPLACE instead of CREATE's DIGEST/AND FACTOR suffixes (ORA-00922 at AND).
+                b.sequence(
+                    IDENTIFIED,
+                    b.firstOf(b.sequence(BY, IDENTIFIER_NAME, b.optional(REPLACE, IDENTIFIER_NAME)), externallyOrGlobally)),
+                b.sequence(NO, AUTHENTICATION),
+                b.sequence(b.firstOf(ADD, UPDATE), FACTOR, CHARACTER_LITERAL, AS, CHARACTER_LITERAL),
+                b.sequence(DROP, FACTOR, CHARACTER_LITERAL),
+                b.sequence(DEFAULT, ROLE, b.firstOf(b.sequence(ALL, b.optional(EXCEPT, roleList())), NONE, roleList())),
+                b.sequence(EXPIRE, PASSWORD, ROLLOVER, PERIOD),
+                b.sequence(
+                    ENABLE, EDITIONS,
+                    b.optional(FOR, nameOrKeyword, b.zeroOrMore(COMMA, nameOrKeyword)),
+                    b.optional(FORCE)),
+                digest,
+                b.sequence(b.firstOf(ENABLE, DISABLE), DICTIONARY, PROTECTION),
+                b.sequence(
+                    b.firstOf(
+                        b.sequence(SET, CONTAINER_DATA, EQUALS, b.firstOf(ALL, DEFAULT, nameList)),
+                        b.sequence(b.firstOf(ADD, REMOVE), CONTAINER_DATA, EQUALS, nameList)),
+                    b.optional(FOR, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))),
+                *sharedOptions)
+
+            // Oracle 26 also accepts the older AUTHENTICATED USING PASSWORD after a proxy user.
+            b.rule(USER_PROXY_CLAUSE).define(
+                b.firstOf(
+                    b.sequence(
+                        GRANT, CONNECT, THROUGH,
+                        b.firstOf(
+                            b.sequence(ENTERPRISE, USERS),
+                            b.sequence(
+                                IDENTIFIER_NAME,
+                                b.optional(
+                                    WITH,
+                                    b.firstOf(
+                                        b.sequence(ROLE, b.firstOf(b.sequence(ALL, EXCEPT, roleList()), roleList())),
+                                        b.sequence(NO, ROLES))),
+                                b.optional(b.firstOf(
+                                    b.sequence(AUTHENTICATION, REQUIRED),
+                                    b.sequence(AUTHENTICATED, USING, PASSWORD)))))),
+                    b.sequence(REVOKE, CONNECT, THROUGH, b.firstOf(b.sequence(ENTERPRISE, USERS), IDENTIFIER_NAME))))
+
+            // A user list is only valid with a proxy clause (ORA-28151); options may precede the proxy clause
+            // but not follow it.
+            b.rule(ALTER_USER).define(
+                ALTER, USER, b.optional(IF, EXISTS),
+                b.firstOf(
+                    b.sequence(IDENTIFIER_NAME, b.oneOrMore(COMMA, IDENTIFIER_NAME), USER_PROXY_CLAUSE),
+                    b.sequence(IDENTIFIER_NAME, b.zeroOrMore(alterUserOption), b.optional(USER_PROXY_CLAUSE))),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/create-property-graph.html
+        private fun createPropertyGraph(b: PlSqlGrammarBuilder) {
+            val schemaObjectName = b.sequence(IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME))
+            val columnList = b.sequence(
+                LPARENTHESIS, IDENTIFIER_NAME, b.zeroOrMore(COMMA, IDENTIFIER_NAME), RPARENTHESIS)
+            val elementNameAndKey = b.sequence(
+                schemaObjectName, b.optional(AS, IDENTIFIER_NAME), b.optional(KEY, columnList))
+
+            // An expression needs AS (ORA-42424 before trailing tokens are read).
+            val property = b.firstOf(b.sequence(EXPRESSION, AS, IDENTIFIER_NAME), IDENTIFIER_NAME)
+            b.rule(PROPERTY_GRAPH_PROPERTIES).define(
+                b.firstOf(
+                    b.sequence(NO, PROPERTIES),
+                    b.sequence(
+                        PROPERTIES,
+                        b.firstOf(
+                            b.sequence(b.optional(ARE), ALL, COLUMNS, b.optional(EXCEPT, columnList)),
+                            b.sequence(LPARENTHESIS, property, b.zeroOrMore(COMMA, property), RPARENTHESIS)))))
+
+            // Only one properties clause may belong to the default label (ORA-42408 for a second one).
+            val label = b.sequence(
+                b.firstOf(b.sequence(PlSqlKeyword.LABEL, IDENTIFIER_NAME), b.sequence(DEFAULT, PlSqlKeyword.LABEL)),
+                b.optional(PROPERTY_GRAPH_PROPERTIES))
+            val labelsAndProperties = b.sequence(
+                b.zeroOrMore(label), b.optional(PROPERTY_GRAPH_PROPERTIES), b.zeroOrMore(label))
+
+            b.rule(PROPERTY_GRAPH_VERTEX_TABLE).define(elementNameAndKey, labelsAndProperties)
+
+            val vertexReference = b.firstOf(
+                b.sequence(KEY, columnList, REFERENCES, IDENTIFIER_NAME, columnList),
+                IDENTIFIER_NAME)
+            b.rule(PROPERTY_GRAPH_EDGE_TABLE).define(
+                elementNameAndKey,
+                SOURCE, vertexReference,
+                DESTINATION, vertexReference,
+                labelsAndProperties)
+
+            val graphOption = b.firstOf(
+                b.sequence(b.firstOf(ENFORCED, TRUSTED), MODE),
+                b.sequence(b.firstOf(ALLOW, DISALLOW), MIXED, PROPERTY, TYPES))
+
+            b.rule(CREATE_PROPERTY_GRAPH).define(
+                CREATE, b.optional(OR, REPLACE), PROPERTY, GRAPH, b.optional(IF, NOT, EXISTS),
+                schemaObjectName,
+                VERTEX, TABLES, LPARENTHESIS,
+                PROPERTY_GRAPH_VERTEX_TABLE, b.zeroOrMore(COMMA, PROPERTY_GRAPH_VERTEX_TABLE),
+                RPARENTHESIS,
+                b.optional(
+                    EDGE, TABLES, LPARENTHESIS,
+                    PROPERTY_GRAPH_EDGE_TABLE, b.zeroOrMore(COMMA, PROPERTY_GRAPH_EDGE_TABLE),
+                    RPARENTHESIS),
+                b.optional(OPTIONS, LPARENTHESIS, graphOption, b.zeroOrMore(COMMA, graphOption), RPARENTHESIS),
+                b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/ALTER-LOCKDOWN-PROFILE.html
+        private fun createLockdownProfile(b: PlSqlGrammarBuilder) {
+            // Values are opaque string literals: Oracle rejects `= (NAME)` and `= ()` (ORA-01780).
+            fun quotedList() = b.sequence(
+                EQUALS, LPARENTHESIS, CHARACTER_LITERAL, b.zeroOrMore(COMMA, CHARACTER_LITERAL), RPARENTHESIS)
+
+            // Oracle 26 rejects the root USERS suffix after any `ALL EXCEPT = (...)` (ORA-00922 at USERS),
+            // although it accepts it after a bare ALL or a plain list.
+            fun allExcept() = b.sequence(ALL, b.optional(EXCEPT, quotedList(), b.nextNot(USERS)))
+
+            // Only a single selected value may be refined further; Oracle 26 rejects a refinement
+            // after a list (ORA-00922) and after ALL. Without a refinement this is `= (...) | ALL ...`.
+            fun singleOrList(refinement: Any? = null): Any =
+                if (refinement == null) b.firstOf(quotedList(), allExcept())
+                else b.firstOf(
+                    allExcept(),
+                    b.sequence(
+                        EQUALS, LPARENTHESIS, CHARACTER_LITERAL,
+                        b.firstOf(
+                            b.sequence(b.oneOrMore(COMMA, CHARACTER_LITERAL), RPARENTHESIS),
+                            b.sequence(RPARENTHESIS, b.optional(refinement)))))
+
+            fun clauseOptions(optionValues: Any?) = b.sequence(OPTION, singleOrList(optionValues))
+
+            fun statementClauses(optionValues: Any?) = b.sequence(CLAUSE, singleOrList(clauseOptions(optionValues)))
+
+            b.rule(ALTER_LOCKDOWN_PROFILE).define(
+                ALTER, LOCKDOWN, PROFILE, IDENTIFIER_NAME,
+                b.firstOf(LOCKDOWN_FEATURES, LOCKDOWN_OPTIONS, LOCKDOWN_STATEMENTS),
+                b.optional(USERS, EQUALS, b.firstOf(ALL, COMMON, LOCAL)),
+                b.optional(SEMICOLON))
+
+            b.rule(LOCKDOWN_FEATURES).define(b.firstOf(DISABLE, ENABLE), FEATURE, singleOrList())
+
+            b.rule(LOCKDOWN_OPTIONS).define(b.firstOf(DISABLE, ENABLE), OPTION, singleOrList())
+
+            // Option values exist only under DISABLE: Oracle 26 rejects them after ENABLE at MINVALUE,
+            // before trailing tokens (ORA-00922).
+            b.rule(LOCKDOWN_STATEMENTS).define(
+                b.firstOf(
+                    b.sequence(DISABLE, STATEMENT_KEYWORD, singleOrList(statementClauses(LOCKDOWN_OPTION_VALUES))),
+                    b.sequence(ENABLE, STATEMENT_KEYWORD, singleOrList(statementClauses(null)))))
+
+            // VALUE, MINVALUE and MAXVALUE may appear in any order, each at most once (a repeated
+            // one fails with ORA-00922 in Oracle 26).
+            val valueClauses = arrayOf<Any>(
+                b.sequence(VALUE, quotedList()),
+                b.sequence(MINVALUE, EQUALS, CHARACTER_LITERAL),
+                b.sequence(MAXVALUE, EQUALS, CHARACTER_LITERAL))
+            // Oracle 26 also rejects USERS once MINVALUE or MAXVALUE was given (VALUE alone allows it).
+            fun valuesEnd(remaining: Int): Any? = if ((7 xor remaining) and 6 != 0) b.nextNot(USERS) else null
+            val optionValues = arrayOfNulls<Any>(8)
+            fun optionValues(remaining: Int): Any {
+                optionValues[remaining]?.let { return it }
+                val choices = valueClauses.indices.filter { remaining and (1 shl it) != 0 }.map { index ->
+                    val next = remaining xor (1 shl index)
+                    val end = valuesEnd(next)
+                    val rest = when {
+                        next == 0 -> end
+                        end == null -> b.optional(optionValues(next))
+                        else -> b.firstOf(optionValues(next), end)
+                    }
+                    if (rest == null) valueClauses[index] else b.sequence(valueClauses[index], rest)
+                }
+                val result = if (choices.size == 1) choices[0]
+                    else b.firstOf(choices[0], choices[1], *choices.drop(2).toTypedArray())
+                optionValues[remaining] = result
+                return result
+            }
+
+            b.rule(LOCKDOWN_OPTION_VALUES).define(optionValues(7))
         }
     }
 
