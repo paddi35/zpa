@@ -1,17 +1,6 @@
 {
-  "examples/condition12.sql" : [
-    3
-  ],
-  "examples/lexer01.sql" : [
-    1,
-    1
-  ],
-  "hw-examples/lexer01.sql" : [
-    1,
-    1
-  ],
-  "long-running/datetime02.sql" : [
-    10,
-    10
-  ]
+  "examples/condition12.sql" : [ 3 ],
+  "examples/lexer01.sql" : [ 1, 1 ],
+  "hw-examples/lexer01.sql" : [ 1, 1 ],
+  "long-running/datetime02.sql" : [ 10, 10 ]
 }

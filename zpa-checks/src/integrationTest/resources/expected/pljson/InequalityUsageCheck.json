@@ -1,6 +1,3 @@
 {
-  "src/pljson_printer.package.sql" : [
-    111,
-    112
-  ]
+  "src/pljson_printer.package.sql" : [ 111, 112 ]
 }
