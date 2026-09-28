@@ -431,12 +431,12 @@ class CreateTableTest : RuleTest() {
 
     @Test
     fun matchesPartitionByRange_TPD_LSC_LPAR_SNE() {
-        assertThat(p).matches("create global temporary table table_id (id number) partition by range (column_id) (partition patition_id values less than (maxvalue) lob (lob_id) store as (enable storage in now));")
+        assertThat(p).matches("create global temporary table table_id (id number) partition by range (column_id) (partition patition_id values less than (maxvalue) lob (lob_id) store as (enable storage in row));")
     }
 
     @Test
     fun matchesPartitionByRange_TPD_LSC_LPAR_SND() {
-        assertThat(p).matches("create global temporary table table_id (id number) partition by range (column_id) (partition patition_id values less than (maxvalue) lob (lob_id) store as (disable storage in now));")
+        assertThat(p).matches("create global temporary table table_id (id number) partition by range (column_id) (partition patition_id values less than (maxvalue) lob (lob_id) store as (disable storage in row));")
     }
 
     @Test
@@ -753,5 +753,176 @@ class CreateTableTest : RuleTest() {
     @Test
     fun doesNotMatchCreateTableAsWithoutASubquery() {
         assertThat(p).notMatches("create table tab_bkp as;")
+    }
+
+    @Test
+    fun matchesColumnAndTableAnnotations() {
+        assertThat(p).matches("create table t (c number annotations(Display 'Value', Hidden))")
+        assertThat(p).matches("create table t (c number) annotations(Display 'Table')")
+        assertThat(p).matches("create table t (c number annotations(Display 'Column')) annotations(Display 'Table')")
+        assertThat(p).matches("create table t (c number) annotations(add Hidden)")
+        assertThat(p).matches("create table t (c number) annotations(add if not exists Foo 'x')")
+        assertThat(p).matches("create table t (c number) annotations(Operations '[\"Sort\", \"Group\"]', Hidden)")
+        assertThat(p).matches("create table t (c number) annotations(Operations 'Sort', Operations 'Group', Hidden)")
+        assertThat(p).matches("create table t (id number(5) annotations(Identity, Display 'ID', \"Group\" 'Emp_Info'))")
+        assertThat(p).matches("create table t (c number default 1 not null annotations(Display 'C'))")
+        assertThat(p).matches("create table t (c number) tablespace users annotations(Display 'T')")
+        assertThat(p).matches("create table t (c number) partition by hash (c) partitions 2 annotations(Display 'T')")
+        assertThat(p).matches(
+            "create global temporary table t (c number) on commit preserve rows annotations(Display 'T')")
+        assertThat(p).matches("create table t annotations(Display 'T') as select 1 c from dual")
+        assertThat(p).matches("create table t of person_t annotations(Display 'O')")
+    }
+
+    @Test
+    fun rejectsMalformedAnnotations() {
+        assertThat(p).notMatches("create table t (c number) annotations")
+        assertThat(p).notMatches("create table t (c number) annotations()")
+        assertThat(p).notMatches("create table t (c number) annotations(Display,)")
+        assertThat(p).notMatches("create table t (c number) annotations(add)")
+        assertThat(p).notMatches("create table t (c number annotations())")
+        // Oracle 26 requires the column annotations after DEFAULT and inline constraints (ORA-03099/ORA-03076).
+        assertThat(p).notMatches("create table t (c number annotations(Display 'C') not null)")
+        assertThat(p).notMatches("create table t (c number annotations(Display 'C') default 1)")
+        // Annotations may not precede ON COMMIT (ORA-00922).
+        assertThat(p).notMatches(
+            "create global temporary table t (c number) annotations(Display 'T') on commit preserve rows")
+    }
+
+    @Test
+    fun rejectsAlterOnlyAnnotationDirectives() {
+        // Oracle 26 raises ORA-11555/ORA-11556 at the directive, before diagnosing trailing tokens.
+        assertThat(p).notMatches("create table t (c number) annotations(drop Foo)")
+        assertThat(p).notMatches("create table t (c number) annotations(drop if exists Foo)")
+        assertThat(p).notMatches("create table t (c number) annotations(replace Foo 'x')")
+        assertThat(p).notMatches("create table t (c number) annotations(add or replace Foo 'x')")
+        assertThat(p).notMatches("create table t (c number annotations(drop Foo))")
+        assertThat(p).notMatches("create table t (c number annotations(replace Foo 'x'))")
+    }
+
+    @Test
+    fun matchesTableAnnotationsAroundPartitioningAndTablespace() {
+        // Orders and repetition executed by Oracle 26ai.
+        assertThat(p).matches("create table t (c number) annotations(Display 'T') tablespace users")
+        assertThat(p).matches("create table t (c number) annotations(Display 'T') partition by hash (c) partitions 2")
+        assertThat(p).matches(
+            "create table t (c number) annotations(Display 'T') partition by hash (c) partitions 2 tablespace users")
+        assertThat(p).matches(
+            "create table t (c number) partition by hash (c) partitions 2 annotations(Display 'T') tablespace users")
+        assertThat(p).matches(
+            "create table t (c number) partition by hash (c) partitions 2 tablespace users annotations(Display 'T')")
+        assertThat(p).matches("create table t (c number) annotations(A '1') tablespace users annotations(B '2')")
+        assertThat(p).matches("create table t (c number) annotations(A '1') annotations(B '2')")
+        assertThat(p).matches(
+            "create table t (c number) annotations(A '1') partition by hash (c) partitions 2 annotations(B '2')")
+        assertThat(p).matches("create table t annotations(Display 'T') tablespace users as select 1 c from dual")
+        assertThat(p).matches("create table t tablespace users annotations(Display 'T') as select 1 c from dual")
+        assertThat(p).matches("create table t (c number primary key) organization index annotations(Display 'T')")
+        assertThat(p).matches(
+            "create table t (c number primary key) organization index tablespace users annotations(Display 'T')")
+    }
+
+    @Test
+    fun rejectsMisplacedTableAnnotations() {
+        // ORA-64303 before ORGANIZATION INDEX; ORA-03048 after the defining query.
+        assertThat(p).notMatches("create table t (c number primary key) annotations(Display 'T') organization index")
+        assertThat(p).notMatches("create table t as select 1 c from dual annotations(Display 'T')")
+        // ORA-00922: annotations may not precede ON COMMIT, even after partitioning or TABLESPACE.
+        assertThat(p).notMatches(
+            "create global temporary table t (c number) tablespace users annotations(Display 'T') on commit preserve rows")
+        assertThat(p).matches(
+            "create global temporary table t (c number) on commit preserve rows annotations(A '1') annotations(B '2')")
+    }
+
+    @Test
+    fun matchesTableSegmentAttributesAndParallelClause() {
+        assertThat(p).matches("create table t (c number) tablespace users storage (initial 8m);")
+        assertThat(p).matches("create table t (c number) storage (initial 8m maxsize 1g);")
+        assertThat(p).matches("create table t (c number) storage (initial 8m) tablespace users pctfree 10 nologging;")
+        assertThat(p).matches("create table t (c number) pctused 40 initrans 2 maxtrans 255 logging;")
+        assertThat(p).matches("create table t (c number) parallel 5;")
+        assertThat(p).matches("create table t (c number) noparallel;")
+        // Oracle 26 interleaves PARALLEL, segment attributes and annotations in any order.
+        assertThat(p).matches("create table t (c number) parallel 2 tablespace users;")
+        assertThat(p).matches("create table t (c number) tablespace users parallel 2 annotations(Display 'T');")
+        assertThat(p).matches("create table t (c number) annotations(Display 'T') storage (initial 8m) parallel;")
+    }
+
+    @Test
+    fun matchesTablePropertiesAroundPartitioningAndColumnProperties() {
+        assertThat(p).matches("create table t (c number) nologging pctfree 5 partition by hash (c) partitions 2;")
+        assertThat(p).matches("create table t (c number) nologging parallel 16 partition by hash (c) partitions 2;")
+        assertThat(p).matches("create table t (c number) partition by hash (c) partitions 2 storage (initial 8m) parallel 4;")
+        assertThat(p).matches(
+            "create table t (c number) storage (initial 100k next 50k) logging " +
+                "partition by range (c) (partition p1 values less than (10) tablespace tsa storage (initial 20k));")
+        assertThat(p).matches("create table t (c number, l clob) tablespace users lob (l) store as (tablespace users);")
+        assertThat(p).matches("create table t (c number, l clob) lob (l) store as (tablespace users) tablespace users parallel;")
+        assertThat(p).matches("create table t (c number, l clob) parallel lob (l) store as (tablespace users);")
+        assertThat(p).matches("create table t (c number primary key) organization index parallel;")
+    }
+
+    @Test
+    fun matchesDeferredSegmentCreation() {
+        assertThat(p).matches("create table t (c number, d varchar2(20)) segment creation deferred;")
+        assertThat(p).matches("create table t (c number) segment creation immediate tablespace users parallel;")
+        assertThat(p).matches("create table t (c number) segment creation deferred partition by hash (c) partitions 2;")
+        assertThat(p).matches(
+            "create table t (c number, l clob) segment creation deferred lob (l) store as (tablespace users) tablespace users;")
+        assertThat(p).matches("create table t (c number primary key) segment creation deferred organization index;")
+    }
+
+    @Test
+    fun matchesTablePropertiesInCreateTableAsSelect() {
+        assertThat(p).matches("create table t parallel as select * from employees where department_id = 80;")
+        assertThat(p).matches("create table t initrans 10 as select sysdate from dual;")
+        assertThat(p).matches("create table t parallel nologging as select 1 c from dual;")
+        assertThat(p).matches("create table t segment creation deferred as select 1 c from dual;")
+        assertThat(p).matches(
+            "create table t nologging parallel 16 partition by hash (c) partitions 512 as select * from source_table;")
+    }
+
+    @Test
+    fun matchesTablePropertiesAfterOnCommit() {
+        assertThat(p).matches(
+            "create global temporary table t (c number) on commit preserve rows tablespace temp annotations(A) parallel;")
+        assertThat(p).matches("create global temporary table t (c number) tablespace temp on commit delete rows;")
+    }
+
+    @Test
+    fun rejectsMisplacedOrIncompleteTableProperties() {
+        // ORA-00922: SEGMENT CREATION must precede every other physical property and may not repeat.
+        assertThat(p).notMatches("create table t (c number) tablespace users segment creation immediate;")
+        assertThat(p).notMatches("create table t (c number) parallel segment creation deferred;")
+        assertThat(p).notMatches("create table t (c number) segment creation immediate segment creation deferred;")
+        assertThat(p).notMatches("create table t (c number) partition by hash (c) partitions 2 segment creation deferred;")
+        assertThat(p).notMatches("create table t (c number, l clob) lob (l) store as (tablespace users) segment creation deferred;")
+        // ORA-64303: physical properties may not precede ORGANIZATION INDEX.
+        assertThat(p).notMatches("create table t (c number primary key) pctfree 10 organization index;")
+        assertThat(p).notMatches("create table t (c number primary key) parallel organization index;")
+        // ORA-00922: only partitioning and TABLESPACE may precede ON COMMIT.
+        assertThat(p).notMatches("create global temporary table t (c number) parallel on commit preserve rows;")
+        assertThat(p).notMatches("create global temporary table t (c number) pctfree 10 on commit preserve rows;")
+        assertThat(p).notMatches("create global temporary table t (c number) segment creation deferred on commit preserve rows;")
+        // ORA-14301: table-level column properties may not follow partitioning.
+        assertThat(p).notMatches(
+            "create table t (c number, l clob) partition by hash (c) partitions 2 lob (l) store as (tablespace users);")
+        // ORA-00922: FILESYSTEM_LIKE_LOGGING is not a table logging option.
+        assertThat(p).notMatches("create table t (c number) filesystem_like_logging;")
+        assertThat(p).notMatches("create table t (c number) segment creation;")
+        assertThat(p).notMatches("create table t (c number) pctfree;")
+        assertThat(p).notMatches("create table t (c number) maxtrans;")
+        assertThat(p).notMatches("create table t (c number) storage ();")
+    }
+
+    @Test
+    fun matchesRowMovementAmongTableProperties() {
+        assertThat(p).matches("create table t (c number) enable row movement partition by hash (c) partitions 2;")
+        assertThat(p).matches("create table t (c number) partition by hash (c) partitions 2 enable row movement parallel;")
+        assertThat(p).matches("create table t (c number) disable row movement tablespace users;")
+        assertThat(p).matches(
+            "create table sales (c number) storage (initial 100k next 50k) logging " +
+                "partition by range (c) (partition p1 values less than (10) tablespace tsa) enable row movement;")
+        assertThat(p).notMatches("create table t (c number) enable row;")
     }
 }

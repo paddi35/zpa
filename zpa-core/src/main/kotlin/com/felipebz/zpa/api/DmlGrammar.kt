@@ -19,6 +19,7 @@
  */
 package com.felipebz.zpa.api
 
+import com.felipebz.flr.grammar.ContextKey
 import com.felipebz.flr.grammar.GrammarRuleKey
 import com.felipebz.zpa.sslr.PlSqlGrammarBuilder
 import com.felipebz.zpa.api.PlSqlGrammar.*
@@ -28,11 +29,19 @@ import com.felipebz.zpa.api.PlSqlPunctuator.*
 import com.felipebz.zpa.api.PlSqlTokenType.INTEGER_LITERAL
 import com.felipebz.zpa.api.SingleRowSqlFunctionsGrammar.*
 
+/**
+ * Set while parsing a row source: query FROM/JOIN items and MERGE USING. Oracle 26 accepts
+ * GRAPH_TABLE there but rejects it as a DELETE/UPDATE target at parse time (ORA-40968 is
+ * raised before a malformed body or trailing garbage is diagnosed).
+ */
+internal val ROW_SOURCE_CONTEXT: ContextKey<Boolean> = ContextKey()
+
 enum class DmlGrammar : GrammarRuleKey {
 
     TABLE_REFERENCE,
     PARTITION_EXTENSION_CLAUSE,
     DML_TABLE_EXPRESSION_CLAUSE,
+    VECTOR_CHUNKS_TABLE,
     ALIAS,
     VALUES_EXPRESSION_CLAUSE,
     PARTITION_BY_CLAUSE,
@@ -41,6 +50,8 @@ enum class DmlGrammar : GrammarRuleKey {
     KEEP_CLAUSE,
     NULL_TREATMENT_CLAUSE,
     ANALYTIC_CLAUSE,
+    WINDOW_CLAUSE,
+    QUALIFY_CLAUSE,
     ON_OR_USING_EXPRESSION,
     INNER_CROSS_JOIN_CLAUSE,
     CROSS_OUTER_APPLY_CLAUSE,
@@ -79,6 +90,7 @@ enum class DmlGrammar : GrammarRuleKey {
     SINGLE_TABLE_INSERT,
     INSERT_INTO_CLAUSE,
     VALUES_CLAUSE,
+    INSERT_SET_CLAUSE,
     MULTI_TABLE_INSERT,
     CONDITIONAL_INSERT_CLAUSE,
     MERGE_EXPRESSION,
@@ -86,6 +98,7 @@ enum class DmlGrammar : GrammarRuleKey {
     MERGE_INSERT_CLAUSE,
     ERROR_LOGGING_CLAUSE,
     DML_COMMAND,
+    EXPLAIN_PLAN,
     GROUPING_EXPRESSION_LIST,
     ROLLUP_CUBE_CLAUSE,
     GROUPING_SETS_CLAUSE,
@@ -128,6 +141,7 @@ enum class DmlGrammar : GrammarRuleKey {
             createUpdateExpression(b)
             createInsertExpression(b)
             createMergeExpression(b)
+            createExplainPlan(b)
 
             b.rule(DML_COMMAND).define(
                     b.firstOf(
@@ -135,8 +149,33 @@ enum class DmlGrammar : GrammarRuleKey {
                             DELETE_EXPRESSION,
                             UPDATE_EXPRESSION,
                             INSERT_EXPRESSION,
-                            MERGE_EXPRESSION),
+                            MERGE_EXPRESSION,
+                            EXPLAIN_PLAN),
                     b.optional(SEMICOLON))
+        }
+
+        // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/EXPLAIN-PLAN.html
+        private fun createExplainPlan(b: PlSqlGrammarBuilder) {
+            // DDL rules may consume their own semicolon. Do not let DML_COMMAND consume another one.
+            fun explainedDdl(rule: Any) = b.sequence(rule, b.nextNot(SEMICOLON))
+            // ALTER INDEX is explainable only with REBUILD; keep the existing ALTER_INDEX AST for that branch.
+            val rebuildIndex = b.sequence(
+                b.next(ALTER, INDEX, UNIT_NAME, REBUILD),
+                explainedDdl(DdlGrammar.ALTER_INDEX))
+            b.rule(EXPLAIN_PLAN).define(
+                EXPLAIN, PLAN,
+                b.optional(SET, STATEMENT_ID, EQUALS, CHARACTER_LITERAL),
+                b.optional(INTO, TABLE_REFERENCE),
+                FOR,
+                b.firstOf(
+                    SELECT_EXPRESSION,
+                    INSERT_EXPRESSION,
+                    UPDATE_EXPRESSION,
+                    DELETE_EXPRESSION,
+                    MERGE_EXPRESSION,
+                    explainedDdl(DdlGrammar.CREATE_TABLE),
+                    explainedDdl(DdlGrammar.CREATE_INDEX),
+                    rebuildIndex))
         }
 
         private fun createSelectExpression(b: PlSqlGrammarBuilder) {
@@ -179,29 +218,44 @@ enum class DmlGrammar : GrammarRuleKey {
                             b.sequence(BETWEEN, WINDOWING_LIMIT, AND, WINDOWING_LIMIT),
                             WINDOWING_LIMIT))
 
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/FIRST.html
+            // Oracle 26 also parses an undocumented PARTITION BY list instead of ORDER BY, but not both.
             b.rule(KEEP_CLAUSE).define(
                     KEEP, LPARENTHESIS,
-                    DENSE_RANK, b.firstOf(FIRST, LAST), ORDER_BY_CLAUSE,
+                    DENSE_RANK, b.firstOf(FIRST, LAST), b.firstOf(ORDER_BY_CLAUSE, PARTITION_BY_CLAUSE),
                     RPARENTHESIS)
 
             b.rule(NULL_TREATMENT_CLAUSE).define(b.firstOf(IGNORE, RESPECT), NULLS)
+
+            // The parenthesized analytic body is Oracle's window_specification: an optional existing window name,
+            // PARTITION BY, then ORDER BY with an optional windowing clause (ORA-00907 for ORDER BY first,
+            // ORA-30485 for a windowing clause without ORDER BY). Named windows share it.
+            val windowSpecification = b.sequence(
+                    LPARENTHESIS,
+                    b.optional(
+                            b.firstOf(
+                                    PARTITION_BY_CLAUSE,
+                                    b.sequence(IDENTIFIER_NAME, b.optional(PARTITION_BY_CLAUSE))
+                            )
+                    ),
+                    b.optional(ORDER_BY_CLAUSE, b.optional(WINDOWING_CLAUSE)),
+                    RPARENTHESIS
+            )
 
             b.rule(ANALYTIC_CLAUSE).define(
                     OVER,
                     b.firstOf(
                             IDENTIFIER_NAME,
-                            b.sequence(
-                                    LPARENTHESIS,
-                                    b.optional(
-                                            b.firstOf(
-                                                    PARTITION_BY_CLAUSE,
-                                                    b.sequence(IDENTIFIER_NAME, b.optional(PARTITION_BY_CLAUSE))
-                                            )
-                                    ),
-                                    b.optional(ORDER_BY_CLAUSE, b.optional(WINDOWING_CLAUSE)),
-                                    RPARENTHESIS
-                            )
+                            windowSpecification
                     ))
+
+            // A single WINDOW keyword with a comma list (ORA-03049 for a second WINDOW, ORA-02000 after a
+            // trailing comma).
+            b.rule(WINDOW_CLAUSE).define(
+                    WINDOW, IDENTIFIER_NAME, AS, windowSpecification,
+                    b.zeroOrMore(COMMA, IDENTIFIER_NAME, AS, windowSpecification))
+
+            b.rule(QUALIFY_CLAUSE).define(QUALIFY, EXPRESSION)
 
             b.rule(ON_OR_USING_EXPRESSION).define(
                     b.firstOf(
@@ -296,12 +350,39 @@ enum class DmlGrammar : GrammarRuleKey {
                         EXCEPT,
                         SET,
                         MODEL,
+                        // `from emp window` keeps WINDOW as an alias; Oracle 26 reads a named window only when
+                        // `name AS` follows. A bare QUALIFY stays an alias, as in Oracle (`from emp qualify ...`).
+                        b.sequence(WINDOW, IDENTIFIER_NAME, AS),
                         b.sequence(MATCH_RECOGNIZE, LPARENTHESIS)
                     )
                 ),
                 b.optional(AS),
                 ALIAS
             )
+
+            // https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/vector_chunks.html
+            // A row source only: in an expression VECTOR_CHUNKS is an ordinary identifier (ORA-00904).
+            // Options appear at most once and in this order (ORA-02000). Oracle 26 rejects the
+            // documented CHUNKER mode while parsing (ORA-30583), as it does any other unknown mode,
+            // split, normalization or a MAX/OVERLAP that is not an integer or bind (ORA-30583..30589).
+            val chunkSize = b.firstOf(INTEGER_LITERAL, HOST_AND_INDICATOR_VARIABLE)
+            val normalizationMode = b.firstOf(WHITESPACE, PUNCTUATION, WIDECHAR)
+            b.rule(VECTOR_CHUNKS_TABLE).define(
+                VECTOR_CHUNKS, LPARENTHESIS, EXPRESSION,
+                b.optional(BY, b.firstOf(
+                    WORDS, CHARS, CHARACTERS,
+                    b.sequence(VOCABULARY, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)))),
+                b.optional(MAX, chunkSize),
+                b.optional(OVERLAP, chunkSize),
+                b.optional(SPLIT, b.optional(BY), b.firstOf(
+                    NONE, BLANKLINE, NEWLINE, SPACE, RECURSIVELY, SENTENCE,
+                    b.sequence(CUSTOM, LPARENTHESIS, CHARACTER_LITERAL, b.zeroOrMore(COMMA, CHARACTER_LITERAL), RPARENTHESIS))),
+                b.optional(LANGUAGE, IDENTIFIER_NAME, b.optional(DOT, IDENTIFIER_NAME)),
+                b.optional(NORMALIZE, b.firstOf(
+                    NONE, ALL,
+                    b.sequence(LPARENTHESIS, normalizationMode, b.zeroOrMore(COMMA, normalizationMode), RPARENTHESIS))),
+                b.optional(EXTENDED),
+                RPARENTHESIS)
 
             b.rule(DML_TABLE_EXPRESSION_CLAUSE).define(
                 b.firstOf(
@@ -317,11 +398,18 @@ enum class DmlGrammar : GrammarRuleKey {
                                 b.optional(LPARENTHESIS, PLUS, RPARENTHESIS)),
                             // `from ((select …) alias)`
                             b.sequence(LPARENTHESIS, b.firstOf(JOIN_CLAUSE, DML_TABLE_EXPRESSION_CLAUSE), RPARENTHESIS),
+                            // Oracle always treats `graph_table(` here as the operator (ORA-03054 for
+                            // `graph_table(1)` even with such a function; ORA-40968 as a DELETE/UPDATE
+                            // target), so it never falls back to a function call.
+                            b.sequence(b.requireContext(ROW_SOURCE_CONTEXT, true), GraphTableGrammar.GRAPH_TABLE),
+                            // Also parsed as an UPDATE/INSERT target and MERGE source; Oracle never falls
+                            // back to a function call for an unqualified `vector_chunks(` (ORA-02000).
+                            VECTOR_CHUNKS_TABLE,
                             // A table function called without `table(…)`. It comes first:
                             // `apps.pkg.fn()` matches TABLE_REFERENCE on its first two parts.
-                            METHOD_CALL,
+                            b.sequence(b.nextNot(b.firstOf(GRAPH_TABLE, VECTOR_CHUNKS), LPARENTHESIS), METHOD_CALL),
                             b.sequence(TABLE_REFERENCE, b.nextNot(LPARENTHESIS), b.optional(PARTITION_EXTENSION_CLAUSE)),
-                            OBJECT_REFERENCE
+                            b.sequence(b.nextNot(b.firstOf(GRAPH_TABLE, VECTOR_CHUNKS), LPARENTHESIS), OBJECT_REFERENCE)
                         ),
                         b.optional(NESTED_CLAUSE),
                         b.optional(
@@ -358,19 +446,22 @@ enum class DmlGrammar : GrammarRuleKey {
 
             b.rule(FROM_CLAUSE).define(
                     FROM,
-                    b.firstOf(JOIN_CLAUSE, DML_TABLE_EXPRESSION_CLAUSE),
-                    b.optional(
-                        b.firstOf(
-                            PIVOT_CLAUSE,
-                            UNPIVOT_CLAUSE
-                        )
-                    ),
-                    b.zeroOrMore(COMMA,
+                    b.withContext(
+                        ROW_SOURCE_CONTEXT, true,
                         b.firstOf(JOIN_CLAUSE, DML_TABLE_EXPRESSION_CLAUSE),
                         b.optional(
                             b.firstOf(
                                 PIVOT_CLAUSE,
                                 UNPIVOT_CLAUSE
+                            )
+                        ),
+                        b.zeroOrMore(COMMA,
+                            b.firstOf(JOIN_CLAUSE, DML_TABLE_EXPRESSION_CLAUSE),
+                            b.optional(
+                                b.firstOf(
+                                    PIVOT_CLAUSE,
+                                    UNPIVOT_CLAUSE
+                                )
                             )
                         )
                     )
@@ -783,7 +874,11 @@ enum class DmlGrammar : GrammarRuleKey {
                             b.sequence(HAVING_CLAUSE, b.optional(GROUP_BY_CLAUSE)))),
                         b.optional(HAVING_CLAUSE),
                         b.optional(HIERARCHICAL_QUERY_CLAUSE),
-                        b.optional(MODEL_CLAUSE)),
+                        // MODEL excludes both WINDOW and QUALIFY (ORA-03049/ORA-03035), and nothing but ORDER BY
+                        // and row limiting may follow them (ORA-03048 for HAVING or CONNECT BY).
+                        b.optional(b.firstOf(
+                            MODEL_CLAUSE,
+                            b.sequence(b.optional(WINDOW_CLAUSE), b.optional(QUALIFY_CLAUSE))))),
                     b.sequence(LPARENTHESIS, SELECT_EXPRESSION, RPARENTHESIS)))
 
             b.rule(SELECT_EXPRESSION).define(
@@ -830,24 +925,42 @@ enum class DmlGrammar : GrammarRuleKey {
 
             b.rule(INSERT_EXPRESSION).define(INSERT, b.firstOf(SINGLE_TABLE_INSERT, MULTI_TABLE_INSERT))
 
+            val valuesRow = b.sequence(
+                LPARENTHESIS, b.firstOf(EXPRESSION, DEFAULT), b.zeroOrMore(b.sequence(COMMA, b.firstOf(EXPRESSION, DEFAULT))),
+                RPARENTHESIS)
+
+            // Only a single-table insert takes further VALUES rows after the first (multi-table inserts fail with
+            // ORA-00928), so they follow VALUES_CLAUSE here instead of widening the shared rule.
+            // Oracle 26 rejects RETURNING after several VALUES or SET rows (ORA-63809/ORA-63853), but only with
+            // dedicated messages, so it is not tracked. BY NAME/POSITION only modify a subquery (ORA-63878 before
+            // VALUES), and a subquery takes no RETURNING clause (ORA-03049).
             b.rule(SINGLE_TABLE_INSERT).define(
                 INSERT_INTO_CLAUSE,
                 b.firstOf(
-                    b.sequence(VALUES_CLAUSE, b.optional(RETURNING_INTO_CLAUSE)),
-                    SELECT_EXPRESSION),
+                    b.sequence(
+                        b.firstOf(b.sequence(VALUES_CLAUSE, b.zeroOrMore(COMMA, valuesRow)), INSERT_SET_CLAUSE),
+                        b.optional(RETURNING_INTO_CLAUSE)),
+                    b.sequence(b.optional(BY, b.firstOf(NAME, POSITION)), SELECT_EXPRESSION)),
                 b.optional(ERROR_LOGGING_CLAUSE))
 
+            // SET always starts the SET clause: Oracle 26 never reads it as a table alias here (ORA-01747 for
+            // `INTO t set VALUES`).
             b.rule(INSERT_INTO_CLAUSE).define(INTO,
                 b.firstOf(b.sequence(LPARENTHESIS, SELECT_EXPRESSION, RPARENTHESIS), b.firstOf(
                     TABLE_EXPRESSION, THE_EXPRESSION, TABLE_REFERENCE)),
                 b.optional(PARTITION_EXTENSION_CLAUSE),
-                b.optional(IDENTIFIER_NAME), b.optional(INSERT_COLUMNS))
+                b.optional(b.nextNot(SET), IDENTIFIER_NAME), b.optional(INSERT_COLUMNS))
 
-            b.rule(VALUES_CLAUSE).define(
-                VALUES,
+            // Either one bare assignment list or one or more parenthesized rows; mixing them fails (ORA-63855), as
+            // does a missing comma between rows (ORA-03048). Assignments are the UPDATE ones, DEFAULT included.
+            val insertSetRow = b.sequence(LPARENTHESIS, UPDATE_COLUMN, b.zeroOrMore(COMMA, UPDATE_COLUMN), RPARENTHESIS)
+            b.rule(INSERT_SET_CLAUSE).define(
+                SET,
                 b.firstOf(
-                    b.sequence(LPARENTHESIS, b.firstOf(EXPRESSION, DEFAULT), b.zeroOrMore(b.sequence(COMMA, b.firstOf(EXPRESSION, DEFAULT))), RPARENTHESIS),
-                    EXPRESSION))
+                    b.sequence(insertSetRow, b.zeroOrMore(COMMA, insertSetRow)),
+                    b.sequence(UPDATE_COLUMN, b.zeroOrMore(COMMA, UPDATE_COLUMN))))
+
+            b.rule(VALUES_CLAUSE).define(VALUES, b.firstOf(valuesRow, EXPRESSION))
 
             b.rule(MULTI_TABLE_INSERT).define(
                 b.firstOf(
@@ -895,9 +1008,13 @@ enum class DmlGrammar : GrammarRuleKey {
                     MERGE, INTO,
                     b.firstOf(
                             b.sequence(LPARENTHESIS, SELECT_EXPRESSION, RPARENTHESIS),
+                            // Undocumented, but Oracle 26ai parses and executes MERGE INTO GRAPH_TABLE
+                            // (both branches change the vertex table); it rejects AS and PARTITION here.
+                            GraphTableGrammar.GRAPH_TABLE,
                             b.sequence(TABLE_REFERENCE, b.optional(PARTITION_EXTENSION_CLAUSE))),
                     b.optional(b.nextNot(USING), IDENTIFIER_NAME),
-                    USING, DML_TABLE_EXPRESSION_CLAUSE, ON, LPARENTHESIS, BOOLEAN_EXPRESSION, RPARENTHESIS,
+                    USING, b.withContext(ROW_SOURCE_CONTEXT, true, DML_TABLE_EXPRESSION_CLAUSE),
+                    ON, LPARENTHESIS, BOOLEAN_EXPRESSION, RPARENTHESIS,
                     b.firstOf(
                             b.sequence(MERGE_UPDATE_CLAUSE, b.optional(MERGE_INSERT_CLAUSE), b.optional(ERROR_LOGGING_CLAUSE)),
                             b.sequence(MERGE_INSERT_CLAUSE, b.optional(MERGE_UPDATE_CLAUSE), b.optional(ERROR_LOGGING_CLAUSE))))
